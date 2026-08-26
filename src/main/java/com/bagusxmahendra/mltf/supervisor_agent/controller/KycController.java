@@ -1,12 +1,20 @@
 package com.bagusxmahendra.mltf.supervisor_agent.controller;
 
 import com.bagusxmahendra.mltf.supervisor_agent.dto.KycStatusResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.KycVerifyResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.security.Auth0JwtService;
 import com.bagusxmahendra.mltf.supervisor_agent.service.KycService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
@@ -15,40 +23,125 @@ import reactor.core.publisher.Mono;
 @RequestMapping("/api/v1/kyc")
 public class KycController {
 
-    private final KycService kycService;
+    private static final Logger log = LoggerFactory.getLogger(KycController.class);
 
-    public KycController(KycService kycService) {
+    private final KycService kycService;
+    private final Auth0JwtService auth0JwtService;
+
+    public KycController(KycService kycService, Auth0JwtService auth0JwtService) {
         this.kycService = kycService;
+        this.auth0JwtService = auth0JwtService;
     }
 
     /**
-     * Get KYC status by query parameter (userId or email).
-     * Example: GET /api/v1/kyc/status?userId=usr_1001
-     * Example: GET /api/v1/kyc/status?email=john.doe@example.com
+     * Get KYC status for the authenticated user extracted from the Auth0 JWT token.
+     * Example: GET /api/v1/kyc/status with Header 'Authorization: Bearer <Auth0_JWT>'
      */
     @GetMapping("/status")
     public Mono<KycStatusResponse> getStatus(
-            @RequestParam(name = "userId", required = false) String userId,
-            @RequestParam(name = "email", required = false) String email
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
     ) {
-        if (userId != null && !userId.isBlank()) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            String userId = auth0JwtService.extractUserId(authHeader);
             return kycService.getStatus(userId);
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
         }
-        if (email != null && !email.isBlank()) {
-            return kycService.getStatusByEmail(email);
-        }
-        return Mono.error(new ResponseStatusException(
-                HttpStatus.BAD_REQUEST,
-                "Query parameter 'userId' or 'email' is required"
-        ));
     }
 
     /**
-     * Get KYC status by user ID path variable.
-     * Example: GET /api/v1/kyc/status/usr_1001
+     * Submit KYC documents for verification.
+     *
+     * <p>Accepts a {@code multipart/form-data} request containing:</p>
+     * <ul>
+     *   <li>{@code document} – identity document file (JPEG / PNG / PDF)</li>
+     *   <li>{@code selfie}   – selfie photo captured from the webcam (JPEG)</li>
+     *   <li>{@code fullName} – (optional) user's full name for pre-fill</li>
+     *   <li>{@code idType}   – (optional) document type hint, e.g. "MyKad"</li>
+     * </ul>
+     * The {@code Authorization: Bearer <JWT>} header is required and used to identify
+     * the submitting user.
+     *
+     * <p>Returns a {@link KycVerifyResponse} shaped to match the Angular UI's
+     * {@code KycStatusResponse} + {@code VerifiedKycData} interfaces:</p>
+     * <pre>
+     * {
+     *   "status":      "IN_REVIEW",
+     *   "message":     "KYC documents received successfully. Verification is in progress.",
+     *   "referenceId": "KYC-REV-2026-1234",
+     *   "verifiedData": {
+     *     "userId":      "auth0|...",
+     *     "fullName":    "...",
+     *     "idNumber":    null,
+     *     "idType":      "MyKad (National Identity Card)",
+     *     "dateOfBirth": null,
+     *     "nationality": null,
+     *     "matchScore":  null,
+     *     "referenceId": "KYC-REV-2026-1234",
+     *     "verifiedAt":  "8/26/2026, 2:23:00 PM",
+     *     "status":      "IN_REVIEW"
+     *   }
+     * }
+     * </pre>
      */
-    @GetMapping("/status/{userId}")
-    public Mono<KycStatusResponse> getStatusByUserIdPath(@PathVariable("userId") String userId) {
-        return kycService.getStatus(userId);
+    @PostMapping(value = "/verify", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Mono<KycVerifyResponse> verify(
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
+            @RequestPart("document") FilePart document,
+            @RequestPart("selfie") FilePart selfie,
+            @RequestPart(value = "fullName", required = false) String fullName
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        String userId;
+        try {
+            userId = auth0JwtService.extractUserId(authHeader);
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+
+        if (document == null) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Identity document file ('document') is required"
+            ));
+        }
+
+        if (selfie == null) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Selfie file ('selfie') is required"
+            ));
+        }
+
+        log.info("KYC verify submission received – userId: {}, document: {}, selfie: {}",
+                userId, document.filename(), selfie.filename());
+
+        return kycService.verify(userId, fullName);
     }
 }
+

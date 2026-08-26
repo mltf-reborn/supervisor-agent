@@ -1,5 +1,7 @@
 package com.bagusxmahendra.mltf.supervisor_agent;
 
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
@@ -9,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -17,6 +20,7 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Date;
 
 import static org.mockito.Mockito.when;
 
@@ -31,14 +35,24 @@ class KycIntegrationTest {
     private KycRepository kycRepository;
 
     private WebTestClient webTestClient;
+    private Algorithm algorithm;
 
     @BeforeEach
     void setUp() {
         this.webTestClient = WebTestClient.bindToApplicationContext(applicationContext).build();
+        this.algorithm = Algorithm.HMAC256("integration-test-secret");
+    }
+
+    private String generateToken(String subject, Date expiresAt) {
+        return JWT.create()
+                .withSubject(subject)
+                .withExpiresAt(expiresAt)
+                .sign(algorithm);
     }
 
     @Test
-    void getKycStatus_byUserIdQueryParam_shouldReturnOkAndStatus() {
+    void getKycStatus_withValidAuth0Jwt_shouldReturnOkAndStatus() {
+        String token = generateToken("usr_1001", Date.from(Instant.now().plusSeconds(3600)));
         KycProfile profile = new KycProfile(
                 "usr_1001",
                 "John Doe",
@@ -68,48 +82,50 @@ class KycIntegrationTest {
         when(kycRepository.findByUserId("usr_1001")).thenReturn(Mono.just(profile));
 
         webTestClient.get()
-                .uri("/api/v1/kyc/status?userId=usr_1001")
+                .uri("/api/v1/kyc/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBody()
-                .jsonPath("$.userId").isEqualTo("usr_1001")
                 .jsonPath("$.status").isEqualTo("APPROVED")
-                .jsonPath("$.fullName").isEqualTo("John Doe")
-                .jsonPath("$.email").isEqualTo("john.doe@example.com");
+                .jsonPath("$.userId").doesNotExist()
+                .jsonPath("$.fullName").doesNotExist()
+                .jsonPath("$.email").doesNotExist()
+                .jsonPath("$.phoneNumber").doesNotExist()
+                .jsonPath("$.riskScore").doesNotExist();
     }
 
     @Test
-    void getKycStatus_byUserIdPathParam_shouldReturnOkAndStatus() {
-        KycProfile profile = new KycProfile(
-                "usr_1002",
-                "Jane Smith",
-                "jane.smith@example.com",
-                null, null, null, null, null, null, null, null, null, null, null,
-                KycStatus.IN_REVIEW,
-                35.0, "MEDIUM", null, null, null, null, null, null
-        );
+    void getKycStatus_withoutAuthHeader_shouldReturn401() {
+        webTestClient.get()
+                .uri("/api/v1/kyc/status")
+                .accept(MediaType.APPLICATION_JSON)
+                .exchange()
+                .expectStatus().isUnauthorized();
+    }
 
-        when(kycRepository.findByUserId("usr_1002")).thenReturn(Mono.just(profile));
+    @Test
+    void getKycStatus_withExpiredToken_shouldReturn401() {
+        String expiredToken = generateToken("usr_1001", Date.from(Instant.now().minusSeconds(120)));
 
         webTestClient.get()
-                .uri("/api/v1/kyc/status/usr_1002")
+                .uri("/api/v1/kyc/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + expiredToken)
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
-                .expectStatus().isOk()
-                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
-                .expectBody()
-                .jsonPath("$.userId").isEqualTo("usr_1002")
-                .jsonPath("$.status").isEqualTo("IN_REVIEW");
+                .expectStatus().isUnauthorized();
     }
 
     @Test
-    void getKycStatus_notFound_shouldReturn404() {
+    void getKycStatus_whenUserNotFoundInDb_shouldReturn404() {
+        String token = generateToken("usr_unknown", Date.from(Instant.now().plusSeconds(3600)));
         when(kycRepository.findByUserId("usr_unknown")).thenReturn(Mono.empty());
 
         webTestClient.get()
-                .uri("/api/v1/kyc/status?userId=usr_unknown")
+                .uri("/api/v1/kyc/status")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isNotFound();
