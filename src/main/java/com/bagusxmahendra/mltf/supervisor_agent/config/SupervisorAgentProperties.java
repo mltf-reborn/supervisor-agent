@@ -53,6 +53,11 @@ public class SupervisorAgentProperties {
     private String externalKycUrl = "http://localhost:8080";
 
     /**
+     * Base URL for Case Management Service (/api/v1/case).
+     */
+    private String caseManagementUrl = "http://localhost:8082";
+
+    /**
      * Threshold for automated KYC Approval (default: 85.0%).
      */
     private double approvedThreshold = 85.0;
@@ -132,6 +137,14 @@ public class SupervisorAgentProperties {
 
     public void setExternalKycUrl(String externalKycUrl) {
         this.externalKycUrl = externalKycUrl;
+    }
+
+    public String getCaseManagementUrl() {
+        return caseManagementUrl;
+    }
+
+    public void setCaseManagementUrl(String caseManagementUrl) {
+        this.caseManagementUrl = caseManagementUrl;
     }
 
     public double getApprovedThreshold() {

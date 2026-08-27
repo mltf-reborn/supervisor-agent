@@ -1,23 +1,29 @@
 package com.bagusxmahendra.mltf.supervisor_agent.tools;
 
+import com.bagusxmahendra.mltf.supervisor_agent.client.CaseManagementClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.DocumentProcessingClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.ExternalKycClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.SelfieValidationClient;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.CaseResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.DocProcessingResponseDto;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ExternalKycResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.SelfieValidationResponseDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,11 +38,14 @@ class KycSupervisorToolsTest {
     @Mock
     private ExternalKycClient externalKycClient;
 
+    @Mock
+    private CaseManagementClient caseManagementClient;
+
     private KycSupervisorTools tools;
 
     @BeforeEach
     void setUp() {
-        tools = new KycSupervisorTools(documentProcessingClient, selfieValidationClient, externalKycClient);
+        tools = new KycSupervisorTools(documentProcessingClient, selfieValidationClient, externalKycClient, caseManagementClient);
     }
 
     @Test
@@ -92,6 +101,94 @@ class KycSupervisorToolsTest {
         assertEquals(true, result.get("isIdentityVerified"));
         assertEquals(false, result.get("isBlacklisted"));
         assertEquals("PASS", result.get("amlSanctionsStatus"));
+    }
+
+    @Test
+    void createCase_shouldCallCaseManagementClientAndReturnSuccessMap() {
+        Instant now = Instant.now();
+        CaseResponse response = new CaseResponse(
+                "CASE-123",
+                "usr_1001",
+                "KYC",
+                "IN_PROGRESS",
+                "gs://bucket/id.jpg",
+                "gs://bucket/selfie.jpg",
+                null,
+                null,
+                null,
+                45.0,
+                "MEDIUM",
+                null,
+                "Requires human review",
+                null,
+                now,
+                now
+        );
+
+        when(caseManagementClient.createCase(any(CreateCaseRequest.class)))
+                .thenReturn(Mono.just(response));
+
+        Map<String, Object> result = tools.createCase(
+                "usr_1001",
+                "gs://bucket/id.jpg",
+                "gs://bucket/selfie.jpg",
+                "Requires human review",
+                45.0,
+                "MEDIUM"
+        );
+
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.get("status"));
+        assertEquals("CASE-123", result.get("caseId"));
+        assertEquals("IN_PROGRESS", result.get("caseStatus"));
+
+        ArgumentCaptor<CreateCaseRequest> captor = ArgumentCaptor.forClass(CreateCaseRequest.class);
+        verify(caseManagementClient).createCase(captor.capture());
+        CreateCaseRequest sentReq = captor.getValue();
+        assertEquals("usr_1001", sentReq.getUserId());
+        assertNull(sentReq.getAssignedTo());
+        assertEquals("IN_PROGRESS", sentReq.getCaseStatus());
+        assertEquals("KYC", sentReq.getCaseType());
+    }
+
+    @Test
+    void createCase_withFullDto_shouldCallCaseManagementClient() {
+        Instant now = Instant.now();
+        CaseResponse response = new CaseResponse(
+                "CASE-456",
+                "usr_1002",
+                "KYC",
+                "IN_PROGRESS",
+                "gs://bucket/id.jpg",
+                "gs://bucket/selfie.jpg",
+                Map.of("score", 80.0),
+                Map.of("match", "INCONCLUSIVE"),
+                Map.of("status", "IN_REVIEW"),
+                45.0,
+                "MEDIUM",
+                null,
+                "Manual review needed",
+                null,
+                now,
+                now
+        );
+
+        when(caseManagementClient.createCase(any(CreateCaseRequest.class)))
+                .thenReturn(Mono.just(response));
+
+        CreateCaseRequest req = new CreateCaseRequest();
+        req.setUserId("usr_1002");
+        req.setDocumentUrl("gs://bucket/id.jpg");
+        req.setSelfieUrl("gs://bucket/selfie.jpg");
+        req.setRiskScore(45.0);
+        req.setRiskLevel("MEDIUM");
+        req.setRemarks("Manual review needed");
+
+        Map<String, Object> result = tools.createCase(req);
+
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.get("status"));
+        assertEquals("CASE-456", result.get("caseId"));
     }
 
     @Test

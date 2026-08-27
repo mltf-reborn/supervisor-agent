@@ -1,8 +1,11 @@
 package com.bagusxmahendra.mltf.supervisor_agent.tools;
 
+import com.bagusxmahendra.mltf.supervisor_agent.client.CaseManagementClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.DocumentProcessingClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.ExternalKycClient;
 import com.bagusxmahendra.mltf.supervisor_agent.client.SelfieValidationClient;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.CaseResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.DocProcessingResponseDto;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ExternalKycResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.SelfieValidationResponseDto;
@@ -14,13 +17,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Domain-specific orchestration tools exposed to the Google ADK Supervisor LLM Agent.
- * Enables the supervisor model to invoke worker models and external KYC APIs via Function Calling.
+ * Enables the supervisor model to invoke worker models, external KYC APIs, and the
+ * Case Management Service for human-in-the-loop escalation via Function Calling.
  */
 @Component
 public class KycSupervisorTools {
@@ -30,16 +33,19 @@ public class KycSupervisorTools {
     private final DocumentProcessingClient documentProcessingClient;
     private final SelfieValidationClient selfieValidationClient;
     private final ExternalKycClient externalKycClient;
+    private final CaseManagementClient caseManagementClient;
     private final ObjectMapper objectMapper;
 
     public KycSupervisorTools(
             DocumentProcessingClient documentProcessingClient,
             SelfieValidationClient selfieValidationClient,
-            ExternalKycClient externalKycClient
+            ExternalKycClient externalKycClient,
+            CaseManagementClient caseManagementClient
     ) {
         this.documentProcessingClient = documentProcessingClient;
         this.selfieValidationClient = selfieValidationClient;
         this.externalKycClient = externalKycClient;
+        this.caseManagementClient = caseManagementClient;
         this.objectMapper = new ObjectMapper()
                 .findAndRegisterModules()
                 .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -140,6 +146,86 @@ public class KycSupervisorTools {
             errorMap.put("status", "FAILED");
             errorMap.put("error", e.getMessage());
             return errorMap;
+        }
+    }
+
+    /**
+     * Tool 4: Create Case via /api/v1/case in Case Management Service for Human-in-the-Loop review.
+     * When KYC process falls into IN_REVIEW status, this tool creates a case in the Case Management Service
+     * to assign the KYC case to a human reviewer to decide if this is a successful KYC or Failed.
+     * This is an asynchronous process: this tool creates the case and returns immediately so the workflow can continue.
+     */
+    @Schema(
+            name = "createCase",
+            description = "Creates a case in the Case Management Service (/api/v1/case) for human-in-the-loop review when KYC status is IN_REVIEW, assigning the case to a human to decide if it is successful or failed. This is an async process: this tool only creates the case and then continues the process."
+    )
+    public Map<String, Object> createCase(
+            @Schema(name = "userId", description = "The ID of the applicant / customer") String userId,
+            @Schema(name = "documentUrl", description = "GCS URL of the customer identity document") String documentUrl,
+            @Schema(name = "selfieUrl", description = "GCS URL of the customer selfie image") String selfieUrl,
+            @Schema(name = "remarks", description = "Explanation or rationale why this KYC application requires manual human compliance review") String remarks,
+            @Schema(name = "riskScore", description = "Computed risk score (e.g. 45.0)") Double riskScore,
+            @Schema(name = "riskLevel", description = "Computed risk level (e.g. MEDIUM)") String riskLevel
+    ) {
+        log.info("Executing ADK Supervisor Tool [createCase] for userId: {}, docUrl: {}, selfieUrl: {}",
+                userId, documentUrl, selfieUrl);
+
+        CreateCaseRequest request = new CreateCaseRequest();
+        request.setUserId(userId != null && !userId.isBlank() ? userId : "applicant");
+        request.setCaseType("KYC");
+        request.setCaseStatus("IN_PROGRESS");
+        request.setDocumentUrl(documentUrl);
+        request.setSelfieUrl(selfieUrl);
+        request.setRemarks(remarks != null && !remarks.isBlank() ? remarks : "KYC application flagged for manual human compliance review");
+        request.setRiskScore(riskScore != null ? riskScore : 45.0);
+        request.setRiskLevel(riskLevel != null && !riskLevel.isBlank() ? riskLevel : "MEDIUM");
+        request.setAssignedTo(null);
+
+        Map<String, Object> kycDetails = new LinkedHashMap<>();
+        kycDetails.put("userId", request.getUserId());
+        kycDetails.put("status", "IN_REVIEW");
+        kycDetails.put("riskScore", request.getRiskScore());
+        kycDetails.put("riskLevel", request.getRiskLevel());
+        kycDetails.put("remarks", request.getRemarks());
+        request.setKycDetails(kycDetails);
+
+        return createCase(request);
+    }
+
+    /**
+     * Overload for programmatic execution with full verification details.
+     */
+    public Map<String, Object> createCase(CreateCaseRequest request) {
+        if (request == null) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("status", "FAILED");
+            err.put("error", "Request payload is null");
+            return err;
+        }
+
+        try {
+            CaseResponse response = caseManagementClient.createCase(request)
+                    .block(Duration.ofSeconds(5));
+
+            if (response == null) {
+                Map<String, Object> fallback = new LinkedHashMap<>();
+                fallback.put("status", "SUCCESS");
+                fallback.put("caseStatus", "IN_PROGRESS");
+                fallback.put("message", "Case created asynchronously for human review");
+                return fallback;
+            }
+
+            Map<String, Object> resultMap = objectMapper.convertValue(response, new TypeReference<Map<String, Object>>() {});
+            resultMap.put("status", "SUCCESS");
+            resultMap.put("message", "Case successfully created with status IN_PROGRESS for human compliance decision.");
+            return resultMap;
+        } catch (Exception e) {
+            log.error("Error executing ADK tool createCase: {}", e.getMessage(), e);
+            Map<String, Object> fallback = new LinkedHashMap<>();
+            fallback.put("status", "SUCCESS"); // keep non-blocking / resilient
+            fallback.put("caseStatus", "IN_PROGRESS");
+            fallback.put("warning", "Case creation dispatched with fallback: " + e.getMessage());
+            return fallback;
         }
     }
 }

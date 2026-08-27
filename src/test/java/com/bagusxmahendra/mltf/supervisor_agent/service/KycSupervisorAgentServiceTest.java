@@ -117,6 +117,8 @@ class KycSupervisorAgentServiceTest {
         when(supervisorTools.validateDocument(any(), any(), any())).thenReturn(docResult);
         when(supervisorTools.validateSelfie(any(), any(), any(), any(), any())).thenReturn(selfieResult);
         when(supervisorTools.getExternalKycData(any(), any(), any(), any())).thenReturn(externalResult);
+        when(supervisorTools.createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class)))
+                .thenReturn(Map.of("status", "SUCCESS", "caseStatus", "IN_PROGRESS"));
 
         StepVerifier.create(service.evaluateProgrammatically(
                 "usr_1001",
@@ -134,6 +136,8 @@ class KycSupervisorAgentServiceTest {
             assertTrue(decision.getExplanation().contains("manual"));
         })
         .verifyComplete();
+
+        org.mockito.Mockito.verify(supervisorTools).createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class));
     }
 
     @Test

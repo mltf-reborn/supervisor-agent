@@ -1,6 +1,7 @@
 package com.bagusxmahendra.mltf.supervisor_agent.service;
 
 import com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ExtractedProfileData;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.SupervisorKycDecision;
 import com.bagusxmahendra.mltf.supervisor_agent.prompt.SupervisorPromptProvider;
@@ -109,7 +110,8 @@ public class KycSupervisorAgentService {
                 tools.add(FunctionTool.create(supervisorTools, "validateDocument"));
                 tools.add(FunctionTool.create(supervisorTools, "validateSelfie"));
                 tools.add(FunctionTool.create(supervisorTools, "getExternalKycData"));
-                log.info("Registered 3 ADK tools with Supervisor Agent: validateDocument, validateSelfie, getExternalKycData");
+                tools.add(FunctionTool.create(supervisorTools, "createCase"));
+                log.info("Registered 4 ADK tools with Supervisor Agent: validateDocument, validateSelfie, getExternalKycData, createCase");
             } catch (Exception e) {
                 log.warn("Could not register ADK supervisor tools: {}", e.getMessage());
             }
@@ -303,14 +305,55 @@ public class KycSupervisorAgentService {
             decision.setRiskScore(45.0);
             decision.setRiskLevel("MEDIUM");
             decision.setRejectionReason(null);
-            decision.setExplanation(String.format(
+            String explanation = String.format(
                     "KYC verification requires manual compliance review. Biometric confidence score (%.1f%%) falls short of the automated approval threshold (%.1f%%). Document score: %.1f%%.",
                     selfieScore, approvedThreshold, docScore
-            ));
-            decision.setRemarks(String.format(
+            );
+            decision.setExplanation(explanation);
+            String remarks = String.format(
                     "IN_REVIEW: Confidence: %.1f%% (Threshold: %.1f%%), Document Score: %.1f%%.",
                     selfieScore, approvedThreshold, docScore
-            ));
+            );
+            decision.setRemarks(remarks);
+
+            // Asynchronous human-in-the-loop escalation via Case Management Service (/api/v1/case)
+            try {
+                CreateCaseRequest caseReq = new CreateCaseRequest();
+                caseReq.setUserId(userId != null && !userId.isBlank() ? userId : "applicant");
+                caseReq.setCaseType("KYC");
+                caseReq.setCaseStatus("IN_PROGRESS");
+                caseReq.setDocumentUrl(documentGcsUrl);
+                caseReq.setSelfieUrl(selfieGcsUrl);
+                caseReq.setRiskScore(decision.getRiskScore());
+                caseReq.setRiskLevel(decision.getRiskLevel());
+                caseReq.setRemarks(explanation);
+                caseReq.setAssignedTo(null);
+                caseReq.setDocumentVerificationDetails(docResult);
+                caseReq.setSelfieDetails(selfieResult);
+
+                Map<String, Object> kycDetailsMap = new LinkedHashMap<>();
+                kycDetailsMap.put("userId", caseReq.getUserId());
+                kycDetailsMap.put("fullName", extractedName);
+                kycDetailsMap.put("idCardNumber", extractedIdNumber);
+                kycDetailsMap.put("idCardType", extractedIdType);
+                kycDetailsMap.put("dateOfBirth", extractedDob);
+                kycDetailsMap.put("nationality", extractedNationality);
+                kycDetailsMap.put("address", extractedAddress);
+                kycDetailsMap.put("city", extractedCity);
+                kycDetailsMap.put("postalCode", extractedPostalCode);
+                kycDetailsMap.put("country", extractedCountry);
+                kycDetailsMap.put("status", "IN_REVIEW");
+                kycDetailsMap.put("riskScore", decision.getRiskScore());
+                kycDetailsMap.put("riskLevel", decision.getRiskLevel());
+                kycDetailsMap.put("remarks", explanation);
+                kycDetailsMap.put("externalKycSummary", externalResult);
+                caseReq.setKycDetails(kycDetailsMap);
+
+                supervisorTools.createCase(caseReq);
+            } catch (Exception e) {
+                log.warn("Non-blocking case creation notice: {}", e.getMessage());
+            }
+
             return decision;
         }).subscribeOn(Schedulers.boundedElastic());
     }
@@ -367,6 +410,37 @@ public class KycSupervisorAgentService {
                     profile.setDateOfBirth("1994-08-22");
                     profile.setNationality("Malaysian");
                     decision.setExtractedProfile(profile);
+                }
+                if (decision.toKycStatus() == com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus.IN_REVIEW) {
+                    try {
+                        CreateCaseRequest caseReq = new CreateCaseRequest();
+                        caseReq.setUserId(userId != null && !userId.isBlank() ? userId : "applicant");
+                        caseReq.setCaseType("KYC");
+                        caseReq.setCaseStatus("IN_PROGRESS");
+                        caseReq.setDocumentUrl(docUrl);
+                        caseReq.setSelfieUrl(selfieUrl);
+                        caseReq.setRiskScore(decision.getRiskScore() != null ? decision.getRiskScore() : 45.0);
+                        caseReq.setRiskLevel(decision.getRiskLevel() != null ? decision.getRiskLevel() : "MEDIUM");
+                        caseReq.setRemarks(decision.getExplanation() != null ? decision.getExplanation() : "KYC application flagged for manual compliance review");
+                        caseReq.setAssignedTo(null);
+                        caseReq.setDocumentVerificationDetails(decision.getDocumentValidationSummary());
+                        caseReq.setSelfieDetails(decision.getSelfieValidationSummary());
+
+                        Map<String, Object> kycDetailsMap = new LinkedHashMap<>();
+                        kycDetailsMap.put("userId", caseReq.getUserId());
+                        kycDetailsMap.put("fullName", decision.getExtractedProfile() != null ? decision.getExtractedProfile().getFullName() : fullName);
+                        kycDetailsMap.put("idCardNumber", decision.getExtractedProfile() != null ? decision.getExtractedProfile().getIdCardNumber() : null);
+                        kycDetailsMap.put("status", "IN_REVIEW");
+                        kycDetailsMap.put("riskScore", caseReq.getRiskScore());
+                        kycDetailsMap.put("riskLevel", caseReq.getRiskLevel());
+                        kycDetailsMap.put("remarks", caseReq.getRemarks());
+                        kycDetailsMap.put("externalKycSummary", decision.getExternalKycSummary());
+                        caseReq.setKycDetails(kycDetailsMap);
+
+                        supervisorTools.createCase(caseReq);
+                    } catch (Exception ex) {
+                        log.warn("Non-blocking case creation notice: {}", ex.getMessage());
+                    }
                 }
                 return decision;
             }
