@@ -175,4 +175,130 @@ class Auth0JwtServiceTest {
         assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
         assertTrue(ex.getReason().contains("User ID claim"));
     }
+
+    @Test
+    void extractEmail_withStandardClaim_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("email", "john.doe@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail("Bearer " + token);
+
+        assertEquals("john.doe@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withCaseInsensitiveBearer_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("email", "john.doe@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail("bearer " + token);
+
+        assertEquals("john.doe@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withRawJwt_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("email", "john.doe@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail(token);
+
+        assertEquals("john.doe@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withSnakeCaseUserEmailClaim_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("user_email", "snake.email@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail("Bearer " + token);
+
+        assertEquals("snake.email@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withCamelCaseUserEmailClaim_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("userEmail", "camel.email@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail("Bearer " + token);
+
+        assertEquals("camel.email@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withNamespacedEmailClaim_shouldReturnEmail() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("https://mltf.example.com/email", "namespaced.email@example.com")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        String email = auth0JwtService.extractEmail("Bearer " + token);
+
+        assertEquals("namespaced.email@example.com", email);
+    }
+
+    @Test
+    void extractEmail_withExpiredToken_shouldThrowUnauthorized() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withClaim("email", "john.doe@example.com")
+                .withExpiresAt(Date.from(Instant.now().minusSeconds(60)))
+                .sign(algorithm);
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> auth0JwtService.extractEmail("Bearer " + token)
+        );
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        assertTrue(ex.getReason().contains("expired"));
+    }
+
+    @Test
+    void extractEmail_withNullOrBlankHeader_shouldThrowUnauthorized() {
+        ResponseStatusException ex1 = assertThrows(
+                ResponseStatusException.class,
+                () -> auth0JwtService.extractEmail(null)
+        );
+        assertEquals(HttpStatus.UNAUTHORIZED, ex1.getStatusCode());
+
+        ResponseStatusException ex2 = assertThrows(
+                ResponseStatusException.class,
+                () -> auth0JwtService.extractEmail("   ")
+        );
+        assertEquals(HttpStatus.UNAUTHORIZED, ex2.getStatusCode());
+    }
+
+    @Test
+    void extractEmail_withoutEmailClaim_shouldThrowUnauthorized() {
+        String token = JWT.create()
+                .withSubject("usr_1001")
+                .withExpiresAt(Date.from(Instant.now().plusSeconds(3600)))
+                .sign(algorithm);
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> auth0JwtService.extractEmail("Bearer " + token)
+        );
+
+        assertEquals(HttpStatus.UNAUTHORIZED, ex.getStatusCode());
+        assertTrue(ex.getReason().contains("Email claim"));
+    }
 }

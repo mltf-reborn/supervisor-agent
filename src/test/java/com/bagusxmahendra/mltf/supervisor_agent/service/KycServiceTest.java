@@ -170,7 +170,7 @@ class KycServiceTest {
                 .thenReturn(Mono.just(decision));
         when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
 
-        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
+        StepVerifier.create(kycService.verify("usr_1001", "ahmad.syazwan@example.com", "Ahmad Syazwan", document, selfie))
                 .assertNext(response -> {
                     assertNotNull(response);
                     assertEquals("APPROVED", response.status());
@@ -187,6 +187,7 @@ class KycServiceTest {
         KycProfile savedProfile = profileCaptor.getValue();
         assertEquals(KycStatus.APPROVED, savedProfile.status());
         assertEquals("940822-10-5819", savedProfile.idCardNumber());
+        assertEquals("ahmad.syazwan@example.com", savedProfile.email());
     }
 
     @Test
@@ -222,7 +223,7 @@ class KycServiceTest {
                 .thenReturn(Mono.just(decision));
         when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
 
-        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
+        StepVerifier.create(kycService.verify("usr_1001", "ahmad.syazwan@example.com", "Ahmad Syazwan", document, selfie))
                 .assertNext(response -> {
                     assertNotNull(response);
                     assertEquals("IN_REVIEW", response.status());
@@ -261,7 +262,7 @@ class KycServiceTest {
                 .thenReturn(Mono.just(decision));
         when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
 
-        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
+        StepVerifier.create(kycService.verify("usr_1001", "ahmad.syazwan@example.com", "Ahmad Syazwan", document, selfie))
                 .assertNext(response -> {
                     assertNotNull(response);
                     assertEquals("REJECTED", response.status());
@@ -271,9 +272,27 @@ class KycServiceTest {
     }
 
     @Test
+    void verify_withNullEmail_shouldReturnBadRequest() {
+        FilePart document = mock(FilePart.class);
+        FilePart selfie = mock(FilePart.class);
+        StepVerifier.create(kycService.verify("usr_1001", null, "Ahmad Syazwan", document, selfie))
+                .expectError(ResponseStatusException.class)
+                .verify();
+    }
+
+    @Test
+    void verify_withBlankEmail_shouldReturnBadRequest() {
+        FilePart document = mock(FilePart.class);
+        FilePart selfie = mock(FilePart.class);
+        StepVerifier.create(kycService.verify("usr_1001", "   ", "Ahmad Syazwan", document, selfie))
+                .expectError(ResponseStatusException.class)
+                .verify();
+    }
+
+    @Test
     void verify_withNullDocument_shouldReturnBadRequest() {
         FilePart selfie = mock(FilePart.class);
-        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", null, selfie))
+        StepVerifier.create(kycService.verify("usr_1001", "ahmad.syazwan@example.com", "Ahmad Syazwan", null, selfie))
                 .expectError(ResponseStatusException.class)
                 .verify();
     }
@@ -281,7 +300,7 @@ class KycServiceTest {
     @Test
     void verify_withNullSelfie_shouldReturnBadRequest() {
         FilePart document = mock(FilePart.class);
-        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, null))
+        StepVerifier.create(kycService.verify("usr_1001", "ahmad.syazwan@example.com", "Ahmad Syazwan", document, null))
                 .expectError(ResponseStatusException.class)
                 .verify();
     }

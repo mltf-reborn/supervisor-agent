@@ -89,6 +89,7 @@ public class KycService {
      * with the session ID, saves profile to Spanner, and returns the sealed UI response.
      *
      * @param userId   the authenticated user's ID (extracted from JWT)
+     * @param email    the authenticated user's email (extracted from JWT)
      * @param fullName optional full name hint provided by the client
      * @param document identity document file
      * @param selfie   webcam selfie photo
@@ -96,12 +97,16 @@ public class KycService {
      */
     public Mono<KycVerifyResponse> verify(
             String userId,
+            String email,
             String fullName,
             FilePart document,
             FilePart selfie
     ) {
         if (userId == null || userId.trim().isEmpty()) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "User ID is required"));
+        }
+        if (email == null || email.trim().isEmpty()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email is required"));
         }
         if (document == null) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Identity document file ('document') is required"));
@@ -111,13 +116,14 @@ public class KycService {
         }
 
         String sanitizedUserId = userId.trim();
+        String sanitizedEmail = email.trim();
         int randomSuffix = ThreadLocalRandom.current().nextInt(1000, 10000);
         String referenceId = "KYC-REV-2026-" + randomSuffix;
         String sessionId = referenceId;
         Instant now = Instant.now();
 
-        log.info("KYC verify submission – userId: {}, referenceId: {}, sessionId: {}",
-                sanitizedUserId, referenceId, sessionId);
+        log.info("KYC verify submission – userId: {}, email: {}, referenceId: {}, sessionId: {}",
+                sanitizedUserId, sanitizedEmail, referenceId, sessionId);
 
         // Store the 2 files into Google Cloud Storage (BucketName: mltf-bucket) with the session ID
         Mono<FileUploadResult> uploadDocMono = storageService.uploadFile(document, sessionId, "document");
@@ -180,7 +186,7 @@ public class KycService {
                         KycProfile profile = new KycProfile(
                                 sanitizedUserId,
                                 effectiveFullName,
-                                "dummy@gmail.com",
+                                sanitizedEmail,
                                 "88888",
                                 idCardNumber,
                                 idCardType,
@@ -215,14 +221,30 @@ public class KycService {
     }
 
     /**
+     * Backward-compatible overload without explicit email parameter.
+     */
+    public Mono<KycVerifyResponse> verify(
+            String userId,
+            String fullName,
+            FilePart document,
+            FilePart selfie
+    ) {
+        return verify(userId, "dummy@gmail.com", fullName, document, selfie);
+    }
+
+    /**
      * Minimal submission overload (for fallback/testing).
      */
-    public Mono<KycVerifyResponse> verify(String userId, String fullName) {
+    public Mono<KycVerifyResponse> verify(String userId, String email, String fullName) {
         if (userId == null || userId.trim().isEmpty()) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "User ID is required"));
         }
+        if (email == null || email.trim().isEmpty()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email is required"));
+        }
 
         String sanitizedUserId = userId.trim();
+        String sanitizedEmail = email.trim();
         int randomSuffix = ThreadLocalRandom.current().nextInt(1000, 10000);
         String referenceId = "KYC-REV-2026-" + randomSuffix;
         Instant now = Instant.now();
@@ -230,7 +252,7 @@ public class KycService {
         KycProfile profile = new KycProfile(
                 sanitizedUserId,
                 fullName,
-                "dummy@gmail.com",
+                sanitizedEmail,
                 "88888",
                 "88888",
                 null,
@@ -255,5 +277,9 @@ public class KycService {
 
         return kycRepository.save(profile)
                 .thenReturn(KycVerifyResponse.inReview(profile, referenceId));
+    }
+
+    public Mono<KycVerifyResponse> verify(String userId, String fullName) {
+        return verify(userId, "dummy@gmail.com", fullName);
     }
 }

@@ -121,9 +121,10 @@ class KycControllerTest {
     void verify_withValidJwtAndFiles_shouldReturnInReview() {
         String authHeader = "Bearer mock.jwt.token";
         String userId = "usr_1001";
+        String email = "ahmad.syazwan@example.com";
 
         KycProfile profile = new KycProfile(
-                userId, "Ahmad Syazwan", "dummy@gmail.com", "88888", "88888",
+                userId, "Ahmad Syazwan", email, "88888", "88888",
                 null, null, null, null, null, null, null, null, null,
                 KycStatus.IN_REVIEW, null, null, null, null, null,
                 Instant.now(), Instant.now(), Instant.now()
@@ -131,7 +132,8 @@ class KycControllerTest {
         KycVerifyResponse expectedResponse = KycVerifyResponse.inReview(profile, "KYC-REV-2026-1234");
 
         when(auth0JwtService.extractUserId(authHeader)).thenReturn(userId);
-        when(kycService.verify(eq(userId), eq("Ahmad Syazwan"), any(), any()))
+        when(auth0JwtService.extractEmail(authHeader)).thenReturn(email);
+        when(kycService.verify(eq(userId), eq(email), eq("Ahmad Syazwan"), any(), any()))
                 .thenReturn(Mono.just(expectedResponse));
 
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
@@ -162,6 +164,37 @@ class KycControllerTest {
                 .jsonPath("$.verifiedData.userId").isEqualTo("usr_1001")
                 .jsonPath("$.verifiedData.fullName").isEqualTo("Ahmad Syazwan")
                 .jsonPath("$.verifiedData.status").isEqualTo("IN_REVIEW");
+    }
+
+    @Test
+    void verify_whenEmailClaimMissingInToken_shouldReturnUnauthorized() {
+        String authHeader = "Bearer mock.jwt.token";
+        when(auth0JwtService.extractUserId(authHeader)).thenReturn("usr_1001");
+        when(auth0JwtService.extractEmail(authHeader)).thenThrow(
+                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Email claim ('email') not found in JWT token")
+        );
+
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("document", new ByteArrayResource("dummy doc".getBytes()) {
+            @Override
+            public String getFilename() {
+                return "document.jpg";
+            }
+        }).contentType(MediaType.IMAGE_JPEG);
+        builder.part("selfie", new ByteArrayResource("dummy selfie".getBytes()) {
+            @Override
+            public String getFilename() {
+                return "selfie.jpg";
+            }
+        }).contentType(MediaType.IMAGE_JPEG);
+
+        webTestClient.post()
+                .uri("/api/v1/kyc/verify")
+                .header(HttpHeaders.AUTHORIZATION, authHeader)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isUnauthorized();
     }
 
     @Test

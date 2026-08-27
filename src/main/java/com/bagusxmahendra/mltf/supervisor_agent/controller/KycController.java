@@ -91,8 +91,10 @@ public class KycController {
         }
 
         String userId;
+        String email;
         try {
             userId = auth0JwtService.extractUserId(authHeader);
+            email = auth0JwtService.extractEmail(authHeader);
         } catch (ResponseStatusException ex) {
             return Mono.error(ex);
         } catch (Exception ex) {
@@ -117,9 +119,9 @@ public class KycController {
             ));
         }
 
-        log.info("KYC verify submission received – userId: {}, document: {}, selfie: {}",
-                userId, document.filename(), selfie.filename());
+        log.info("KYC verify submission received – userId: {}, email: {}, document: {}, selfie: {}",
+                userId, email, document.filename(), selfie.filename());
 
-        return kycService.verify(userId, fullName, document, selfie);
+        return kycService.verify(userId, email, fullName, document, selfie);
     }
 }

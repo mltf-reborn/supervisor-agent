@@ -147,4 +147,102 @@ public class Auth0JwtService {
         log.debug("Successfully extracted userId: {}", userId);
         return userId;
     }
+
+    /**
+     * Extracts the email from an Authorization header containing an Auth0 JWT.
+     *
+     * @param authorizationHeader the HTTP Authorization header (e.g. "Bearer <token>")
+     * @return the extracted email
+     * @throws ResponseStatusException if header is missing/invalid, token is expired, or email cannot be found
+     */
+    public String extractEmail(String authorizationHeader) {
+        String token = extractToken(authorizationHeader);
+        return extractEmailFromToken(token);
+    }
+
+    /**
+     * Decodes the JWT token and extracts the email from standard and custom claims.
+     *
+     * @param token the raw JWT token
+     * @return the email
+     */
+    public String extractEmailFromToken(String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "JWT token cannot be empty");
+        }
+
+        DecodedJWT decodedJwt;
+        try {
+            decodedJwt = JWT.decode(token);
+        } catch (JWTDecodeException e) {
+            log.warn("Failed to decode JWT token: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid JWT token: " + e.getMessage(), e);
+        }
+
+        // Check token expiration
+        Date expiresAt = decodedJwt.getExpiresAt();
+        if (expiresAt != null && expiresAt.toInstant().isBefore(Instant.now())) {
+            log.warn("JWT token has expired at: {}", expiresAt);
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "JWT token has expired");
+        }
+
+        String email = null;
+
+        // 1. Check standard claim "email"
+        Claim emailClaim = decodedJwt.getClaim("email");
+        if (!emailClaim.isMissing() && !emailClaim.isNull()) {
+            String val = emailClaim.asString();
+            if (val != null && !val.isBlank()) {
+                email = val.trim();
+            }
+        }
+
+        // 2. Check custom claim "user_email"
+        if (email == null) {
+            Claim snakeCaseClaim = decodedJwt.getClaim("user_email");
+            if (!snakeCaseClaim.isMissing() && !snakeCaseClaim.isNull()) {
+                String val = snakeCaseClaim.asString();
+                if (val != null && !val.isBlank()) {
+                    email = val.trim();
+                }
+            }
+        }
+
+        // 3. Check custom claim "userEmail"
+        if (email == null) {
+            Claim camelCaseClaim = decodedJwt.getClaim("userEmail");
+            if (!camelCaseClaim.isMissing() && !camelCaseClaim.isNull()) {
+                String val = camelCaseClaim.asString();
+                if (val != null && !val.isBlank()) {
+                    email = val.trim();
+                }
+            }
+        }
+
+        // 4. Check custom namespaced claims (e.g. "https://mltf.com/email" or "https://mltf.com/user_email")
+        if (email == null) {
+            for (Map.Entry<String, Claim> entry : decodedJwt.getClaims().entrySet()) {
+                String key = entry.getKey().toLowerCase();
+                if ((key.endsWith("/email") || key.endsWith("/user_email") || key.endsWith("/useremail")) && !entry.getValue().isNull()) {
+                    String val = entry.getValue().asString();
+                    if (val != null && !val.isBlank()) {
+                        email = val.trim();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (email == null || email.isBlank()) {
+            log.warn("Email not found in JWT token claims");
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Email claim ('email') not found in JWT token"
+            );
+        }
+
+        log.debug("Successfully extracted email: {}", email);
+        return email;
+    }
 }
+

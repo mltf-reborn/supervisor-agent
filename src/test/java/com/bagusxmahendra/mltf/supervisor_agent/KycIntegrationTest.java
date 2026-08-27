@@ -60,6 +60,7 @@ class KycIntegrationTest {
     private String generateToken(String subject, Date expiresAt) {
         return JWT.create()
                 .withSubject(subject)
+                .withClaim("email", "john.doe@example.com")
                 .withExpiresAt(expiresAt)
                 .sign(algorithm);
     }
@@ -182,5 +183,10 @@ class KycIntegrationTest {
                 .jsonPath("$.verifiedData.userId").isEqualTo("usr_1001")
                 .jsonPath("$.verifiedData.fullName").isEqualTo("Ahmad Syazwan")
                 .jsonPath("$.verifiedData.status").isEqualTo("APPROVED");
+
+        org.mockito.ArgumentCaptor<KycProfile> profileCaptor = org.mockito.ArgumentCaptor.forClass(KycProfile.class);
+        org.mockito.Mockito.verify(kycRepository).save(profileCaptor.capture());
+        KycProfile saved = profileCaptor.getValue();
+        org.junit.jupiter.api.Assertions.assertEquals("john.doe@example.com", saved.email());
     }
 }

@@ -1,0 +1,60 @@
+[
+  {
+    "idNumber": "940822-10-5819",
+    "fullName": "BAGUS MAHENDRA WICAKSONO",
+    "dateOfBirth": "1994-08-22",
+    "nationality": "Malaysian",
+    "status": "SUCCESS",
+    "message": "External KYC database verification completed successfully.",
+    "registryStatus": "ACTIVE",
+    "isIdentityVerified": true,
+    "isBlacklisted": false,
+    "amlSanctionsStatus": "PASS",
+    "pepStatus": "NOT_PEP",
+    "creditScore": 780,
+    "riskLevel": "LOW",
+    "riskScore": 5.0,
+    "remarks": "National identity verified against central registry (Jabatan Pendaftaran Negara). Clean AML/PEP record with no adverse flags.",
+    "flags": []
+  },
+  {
+    "idNumber": "880512-14-5123",
+    "fullName": "JOHN DOE",
+    "dateOfBirth": "1988-05-12",
+    "nationality": "American",
+    "status": "SUCCESS",
+    "message": "External KYC database verification completed successfully.",
+    "registryStatus": "ACTIVE",
+    "isIdentityVerified": true,
+    "isBlacklisted": false,
+    "amlSanctionsStatus": "PASS",
+    "pepStatus": "NOT_PEP",
+    "creditScore": 810,
+    "riskLevel": "LOW",
+    "riskScore": 8.0,
+    "remarks": "National identity verified against central registry. Clear credit rating, no sanctions or adverse media found.",
+    "flags": []
+  },
+  {
+    "idNumber": "FRAUD-12345",
+    "fullName": "ROBERT JOHNSON",
+    "dateOfBirth": "1985-02-18",
+    "nationality": "Malaysian",
+    "status": "SUSPICIOUS",
+    "message": "External KYC validation flagged potential risk: National registry blacklist match: High risk fraud flagged by financial intelligence unit.",
+    "registryStatus": "FLAGGED",
+    "isIdentityVerified": false,
+    "isBlacklisted": true,
+    "amlSanctionsStatus": "HIT",
+    "pepStatus": "PEP_DOMESTIC",
+    "creditScore": 450,
+    "riskLevel": "HIGH",
+    "riskScore": 85.0,
+    "remarks": "National registry blacklist match: High risk fraud flagged by financial intelligence unit.",
+    "flags": [
+      "AML_WATCHLIST_HIT",
+      "SUSPICIOUS_IDENTITY_RECORD",
+      "SANCTION_FLAGGED"
+    ]
+  }
+]
