@@ -110,8 +110,7 @@ public class KycSupervisorAgentService {
                 tools.add(FunctionTool.create(supervisorTools, "validateDocument"));
                 tools.add(FunctionTool.create(supervisorTools, "validateSelfie"));
                 tools.add(FunctionTool.create(supervisorTools, "getExternalKycData"));
-                tools.add(FunctionTool.create(supervisorTools, "createCase"));
-                log.info("Registered 4 ADK tools with Supervisor Agent: validateDocument, validateSelfie, getExternalKycData, createCase");
+                log.info("Registered 3 ADK validation tools with Supervisor Agent: validateDocument, validateSelfie, getExternalKycData");
             } catch (Exception e) {
                 log.warn("Could not register ADK supervisor tools: {}", e.getMessage());
             }
@@ -135,6 +134,7 @@ public class KycSupervisorAgentService {
     /**
      * Conducts end-to-end KYC verification by having the Supervisor LLM Agent orchestrate
      * document analysis, biometric selfie matching, and external KYC registry checks.
+     * The Case Management API (/api/v1/case) is only called once at the very end if IN_REVIEW.
      */
     public Mono<SupervisorKycDecision> evaluateKyc(
             String userId,
@@ -169,20 +169,21 @@ public class KycSupervisorAgentService {
                     return Flux.from(adkRunner.runAsync(sessionKey, content))
                             .collectList()
                             .map(this::extractTextFromEvents)
-                            .map(rawJson -> parseDecisionResponse(rawJson, userId, fullName, documentGcsUrl, selfieGcsUrl))
-                            .timeout(Duration.ofSeconds(Math.min(properties.getTimeoutSeconds(), 10)));
+                            .map(rawJson -> parseDecisionResponse(rawJson, userId, fullName, documentGcsUrl, selfieGcsUrl));
                 });
             } catch (Exception e) {
                 log.warn("ADK Agent direct execution deferred ({}), performing programmatic synthesis", e.getMessage());
                 return evaluateProgrammatically(userId, fullName, documentGcsUrl, selfieGcsUrl, docMimeType, selfieMimeType);
             }
         })
-        .timeout(Duration.ofSeconds(Math.min(properties.getTimeoutSeconds(), 10)), evaluateProgrammatically(userId, fullName, documentGcsUrl, selfieGcsUrl, docMimeType, selfieMimeType))
+        .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()), Mono.defer(() -> {
+            log.warn("ADK Agent timed out after {}s, falling back to programmatic synthesis", properties.getTimeoutSeconds());
+            return evaluateProgrammatically(userId, fullName, documentGcsUrl, selfieGcsUrl, docMimeType, selfieMimeType);
+        }))
         .onErrorResume(err -> {
             log.warn("Error during ADK LLM orchestration ({}), falling back to programmatic synthesis", err.getMessage());
             return evaluateProgrammatically(userId, fullName, documentGcsUrl, selfieGcsUrl, docMimeType, selfieMimeType);
         })
-        .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()), evaluateProgrammatically(userId, fullName, documentGcsUrl, selfieGcsUrl, docMimeType, selfieMimeType))
         .subscribeOn(Schedulers.boundedElastic());
     }
 

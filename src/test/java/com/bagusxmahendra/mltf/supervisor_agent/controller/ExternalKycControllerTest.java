@@ -1,41 +1,31 @@
 package com.bagusxmahendra.mltf.supervisor_agent.controller;
 
 import com.bagusxmahendra.mltf.supervisor_agent.client.ExternalKycClient;
+import com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ExternalKycRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.WebClient;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
-
-@ExtendWith(MockitoExtension.class)
 class ExternalKycControllerTest {
 
-    @Mock
     private ExternalKycClient externalKycClient;
-
     private ExternalKycController controller;
     private WebTestClient webTestClient;
 
     @BeforeEach
     void setUp() {
+        externalKycClient = new ExternalKycClient(WebClient.builder(), new SupervisorAgentProperties());
         controller = new ExternalKycController(externalKycClient);
         webTestClient = WebTestClient.bindToController(controller).build();
     }
 
     @Test
     void verifyExternalKycPost_withExactMatchRequest_shouldReturnSuccess() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("940822-10-5819", "BUEDI GUNAWAN", "1994-08-22", "Malaysian"));
-
-        ExternalKycRequest request = new ExternalKycRequest("940822-10-5819", "BUEDI GUNAWAN", "1994-08-22", "Malaysian");
+        ExternalKycRequest request = new ExternalKycRequest("940822-10-5819", "BAGUS MAHENDRA WICAKSONO", "1994-08-22", "Malaysian");
 
         webTestClient.post()
                 .uri("/api/v1/external/kyc")
@@ -46,7 +36,7 @@ class ExternalKycControllerTest {
                 .expectBody()
                 .jsonPath("$.status").isEqualTo("SUCCESS")
                 .jsonPath("$.idNumber").isEqualTo("940822-10-5819")
-                .jsonPath("$.fullName").isEqualTo("BUEDI GUNAWAN")
+                .jsonPath("$.fullName").isEqualTo("BAGUS MAHENDRA WICAKSONO")
                 .jsonPath("$.isIdentityVerified").isEqualTo(true)
                 .jsonPath("$.isBlacklisted").isEqualTo(false)
                 .jsonPath("$.amlSanctionsStatus").isEqualTo("PASS");
@@ -54,10 +44,6 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_whenNameMismatch_shouldReturnInReview() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("940822-10-5819", "AHMAD SYAZWAN", "1994-08-22", "Malaysian"));
-
         ExternalKycRequest request = new ExternalKycRequest("940822-10-5819", "AHMAD SYAZWAN", "1994-08-22", "Malaysian");
 
         webTestClient.post()
@@ -74,10 +60,6 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_whenIdNotFound_shouldReturnInReview() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("UNKNOWN-99999", "ANY NAME", "1994-08-22", "Malaysian"));
-
         ExternalKycRequest request = new ExternalKycRequest("UNKNOWN-99999", "ANY NAME", "1994-08-22", "Malaysian");
 
         webTestClient.post()
@@ -94,15 +76,11 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycGet_withExactQueryParams_shouldReturnSuccess() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("940822-10-5819", "BUEDI GUNAWAN", "1994-08-22", "Malaysian"));
-
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v1/external/kyc")
                         .queryParam("idNumber", "940822-10-5819")
-                        .queryParam("fullName", "BUEDI GUNAWAN")
+                        .queryParam("fullName", "BAGUS MAHENDRA WICAKSONO")
                         .build())
                 .exchange()
                 .expectStatus().isOk()
@@ -113,10 +91,6 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_withFraudTrigger_shouldReturnSuspicious() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("FRAUD-12345", "ROBERT JOHNSON", "1985-02-18", "Malaysian"));
-
         ExternalKycRequest request = new ExternalKycRequest("FRAUD-12345", "ROBERT JOHNSON", "1985-02-18", "Malaysian");
 
         webTestClient.post()
@@ -133,10 +107,6 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_withSecondMockData_shouldReturnJohnDoeRecord() {
-        ExternalKycClient realClient = new ExternalKycClient(org.springframework.web.reactive.function.client.WebClient.builder(), new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties());
-        when(externalKycClient.generateMockKycData(any(), any(), any(), any()))
-                .thenReturn(realClient.generateMockKycData("880512-14-5123", "JOHN DOE", "1988-05-12", "American"));
-
         ExternalKycRequest request = new ExternalKycRequest("880512-14-5123", "JOHN DOE", "1988-05-12", "American");
 
         webTestClient.post()
@@ -156,14 +126,9 @@ class ExternalKycControllerTest {
 
     @Test
     void externalKycClient_shouldLoad3RecordsFromJson() {
-        ExternalKycClient realClient = new ExternalKycClient(
-                org.springframework.web.reactive.function.client.WebClient.builder(),
-                new com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties()
-        );
-
-        org.junit.jupiter.api.Assertions.assertEquals(3, realClient.getMockKycRecords().size());
-        org.junit.jupiter.api.Assertions.assertEquals("940822-10-5819", realClient.getMockKycRecords().get(0).getIdNumber());
-        org.junit.jupiter.api.Assertions.assertEquals("880512-14-5123", realClient.getMockKycRecords().get(1).getIdNumber());
-        org.junit.jupiter.api.Assertions.assertEquals("FRAUD-12345", realClient.getMockKycRecords().get(2).getIdNumber());
+        org.junit.jupiter.api.Assertions.assertEquals(3, externalKycClient.getMockKycRecords().size());
+        org.junit.jupiter.api.Assertions.assertEquals("940822-10-5819", externalKycClient.getMockKycRecords().get(0).getIdNumber());
+        org.junit.jupiter.api.Assertions.assertEquals("880512-14-5123", externalKycClient.getMockKycRecords().get(1).getIdNumber());
+        org.junit.jupiter.api.Assertions.assertEquals("FRAUD-12345", externalKycClient.getMockKycRecords().get(2).getIdNumber());
     }
 }

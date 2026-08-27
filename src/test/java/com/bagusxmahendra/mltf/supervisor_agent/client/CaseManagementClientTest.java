@@ -20,7 +20,7 @@ class CaseManagementClientTest {
     @BeforeEach
     void setUp() {
         properties = new SupervisorAgentProperties();
-        properties.setCaseManagementUrl("http://localhost:8082");
+        properties.setCaseManagementUrl("http://localhost:59999");
         client = new CaseManagementClient(WebClient.builder(), properties);
     }
 

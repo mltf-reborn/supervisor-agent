@@ -45,6 +45,9 @@ class KycIntegrationTest {
     @MockitoBean
     private KycRepository kycRepository;
 
+    @MockitoBean
+    private com.bagusxmahendra.mltf.supervisor_agent.tools.KycSupervisorTools supervisorTools;
+
     private WebTestClient webTestClient;
     private Algorithm algorithm;
 
@@ -153,6 +156,29 @@ class KycIntegrationTest {
         Blob mockBlob = mock(Blob.class);
         when(storage.create(any(BlobInfo.class), any(byte[].class))).thenReturn(mockBlob);
         when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
+
+        java.util.Map<String, Object> docResult = new java.util.LinkedHashMap<>();
+        docResult.put("status", "SUCCESS");
+        docResult.put("detectedDocumentType", "NATIONAL_ID");
+        docResult.put("scores", java.util.Map.of("documentScore", 95.0));
+        docResult.put("pixelLevelCheck", java.util.Map.of("isTampered", false));
+        docResult.put("extractedFields", java.util.Map.of("fullName", "Ahmad Syazwan", "idNumber", "940822-10-5819"));
+
+        java.util.Map<String, Object> selfieResult = new java.util.LinkedHashMap<>();
+        selfieResult.put("status", "SUCCESS");
+        selfieResult.put("isIdentical", true);
+        selfieResult.put("confidenceScore", 95.0);
+        selfieResult.put("matchStatus", "MATCH");
+
+        java.util.Map<String, Object> externalResult = new java.util.LinkedHashMap<>();
+        externalResult.put("status", "SUCCESS");
+        externalResult.put("isIdentityVerified", true);
+        externalResult.put("isBlacklisted", false);
+        externalResult.put("amlSanctionsStatus", "PASS");
+
+        when(supervisorTools.validateDocument(any(), any(), any())).thenReturn(docResult);
+        when(supervisorTools.validateSelfie(any(), any(), any(), any(), any())).thenReturn(selfieResult);
+        when(supervisorTools.getExternalKycData(any(), any(), any(), any())).thenReturn(externalResult);
 
         MultipartBodyBuilder builder = new MultipartBodyBuilder();
         builder.part("document", new ByteArrayResource("test-document-content".getBytes()) {

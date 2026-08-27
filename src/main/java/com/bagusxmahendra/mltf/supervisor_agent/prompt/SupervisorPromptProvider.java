@@ -52,12 +52,11 @@ public class SupervisorPromptProvider {
                 - Identity Document GCS URL: %s (mimeType: %s)
                 - Webcam Selfie GCS URL: %s (mimeType: %s)
                 
-                Please execute the KYC orchestration workflow:
+                Please execute the KYC orchestration workflow in sequence:
                 1. Call tool `validateDocument` with the document GCS URL to inspect pixel integrity, tampering, authenticity scores, and extract full identity fields.
                 2. Call tool `validateSelfie` with the ID document GCS URL and Selfie GCS URL to verify biometric facial match, confidence score, and liveness anti-spoofing.
                 3. Call tool `getExternalKycData` with the extracted ID card number and full name to check national identity registry, AML/CFT sanctions, PEP status, and blacklists.
-                4. Carefully analyze and review all findings. If the verification falls into `IN_REVIEW` status, call tool `createCase` to create a case in the Case Management Service (/api/v1/case) for human review.
-                5. Synthesize an explainable decision (APPROVED, IN_REVIEW, or REJECTED) with confidence ratings, risk scores, and detailed reasoning.
+                4. Synthesize an explainable decision (APPROVED, IN_REVIEW, or REJECTED) with confidence ratings, risk scores, summaries of all 3 checks, and detailed reasoning.
                 
                 Return the final synthesized decision strictly in the requested JSON structure.
                 """.formatted(
@@ -73,8 +72,7 @@ public class SupervisorPromptProvider {
     private String getEmbeddedSystemPrompt() {
         return """
                 You are the Senior KYC Supervisor Agent orchestrating KYC verification using Google ADK.
-                Use the tools validateDocument, validateSelfie, and getExternalKycData to conduct diligent KYC checks.
-                If KYC status is IN_REVIEW, use the createCase tool to create a case for human review.
+                Use the tools validateDocument, validateSelfie, and getExternalKycData in sequence to conduct diligent KYC checks.
                 Synthesize findings and decide APPROVED, IN_REVIEW, or REJECTED with explainable reasoning in valid JSON.
                 """;
     }
