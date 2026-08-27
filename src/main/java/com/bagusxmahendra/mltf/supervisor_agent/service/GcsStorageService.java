@@ -2,6 +2,7 @@ package com.bagusxmahendra.mltf.supervisor_agent.service;
 
 import com.bagusxmahendra.mltf.supervisor_agent.config.StorageProperties;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.FileUploadResult;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.GcsFileDownload;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
@@ -12,7 +13,9 @@ import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.multipart.FilePart;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -102,6 +105,62 @@ public class GcsStorageService implements StorageService {
             );
         })
         .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<GcsFileDownload> downloadFile(String objectNameOrGcsUri) {
+        return Mono.fromCallable(() -> {
+            if (objectNameOrGcsUri == null || objectNameOrGcsUri.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "GCS URI or object name must not be blank");
+            }
+
+            String bucket = properties.getBucketName();
+            String objectName = objectNameOrGcsUri.trim();
+
+            // Strip gs://bucket/ prefix if present
+            if (objectName.startsWith("gs://")) {
+                String withoutScheme = objectName.substring("gs://".length());
+                int slashIdx = withoutScheme.indexOf('/');
+                if (slashIdx < 0) {
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid GCS URI: " + objectNameOrGcsUri);
+                }
+                bucket = withoutScheme.substring(0, slashIdx);
+                objectName = withoutScheme.substring(slashIdx + 1);
+            }
+
+            log.info("Downloading file from GCS [bucket={}, objectName={}]", bucket, objectName);
+
+            BlobId blobId = BlobId.of(bucket, objectName);
+            Blob blob = storage.get(blobId);
+
+            if (blob == null || !blob.exists()) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "File not found in GCS: " + objectNameOrGcsUri);
+            }
+
+            byte[] bytes = blob.getContent();
+            String contentType = blob.getContentType();
+            if (contentType == null || contentType.isBlank()) {
+                contentType = determineContentTypeFromName(objectName);
+            }
+
+            // Extract filename from object path
+            String filename = objectName.contains("/")
+                    ? objectName.substring(objectName.lastIndexOf('/') + 1)
+                    : objectName;
+
+            log.info("Successfully downloaded {} bytes from GCS [bucket={}, objectName={}]",
+                    bytes.length, bucket, objectName);
+            return new GcsFileDownload(bytes, contentType, filename);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private String determineContentTypeFromName(String filename) {
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf"))  return MediaType.APPLICATION_PDF_VALUE;
+        if (lower.endsWith(".png"))  return MediaType.IMAGE_PNG_VALUE;
+        if (lower.endsWith(".webp")) return "image/webp";
+        return MediaType.IMAGE_JPEG_VALUE;
     }
 
     private String sanitizeSessionId(String sessionId) {
