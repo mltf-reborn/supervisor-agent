@@ -21,4 +21,10 @@ public class TestSpannerConfig {
     public DatabaseClient testDatabaseClient() {
         return Mockito.mock(DatabaseClient.class);
     }
+
+    @Bean
+    @Primary
+    public com.google.cloud.storage.Storage testStorage() {
+        return Mockito.mock(com.google.cloud.storage.Storage.class);
+    }
 }

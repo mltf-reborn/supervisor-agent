@@ -8,3 +8,4 @@ data:
   GCP_PROJECT_ID: "mltf-506212"
   GCP_SPANNER_INSTANCE_ID: "mltf-spanner"
   GCP_SPANNER_DATABASE_ID: "mortgage_db"
+  GCP_STORAGE_BUCKET_NAME: "mltf-bucket"

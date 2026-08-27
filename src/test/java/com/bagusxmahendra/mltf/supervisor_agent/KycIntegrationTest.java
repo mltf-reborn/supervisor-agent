@@ -5,16 +5,22 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobInfo;
+import com.google.cloud.storage.Storage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.reactive.function.BodyInserters;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
@@ -22,6 +28,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Date;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -30,6 +38,9 @@ class KycIntegrationTest {
 
     @Autowired
     private ApplicationContext applicationContext;
+
+    @Autowired
+    private Storage storage;
 
     @MockitoBean
     private KycRepository kycRepository;
@@ -129,5 +140,44 @@ class KycIntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isNotFound();
+    }
+
+    @Test
+    void postKycVerify_withValidJwtAndFiles_shouldStoreInGcsAndReturnInReview() {
+        String token = generateToken("usr_1001", Date.from(Instant.now().plusSeconds(3600)));
+
+        Blob mockBlob = mock(Blob.class);
+        when(storage.create(any(BlobInfo.class), any(byte[].class))).thenReturn(mockBlob);
+        when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
+
+        MultipartBodyBuilder builder = new MultipartBodyBuilder();
+        builder.part("document", new ByteArrayResource("test-document-content".getBytes()) {
+            @Override
+            public String getFilename() {
+                return "mykad.jpg";
+            }
+        }).contentType(MediaType.IMAGE_JPEG);
+        builder.part("selfie", new ByteArrayResource("test-selfie-content".getBytes()) {
+            @Override
+            public String getFilename() {
+                return "selfie.jpg";
+            }
+        }).contentType(MediaType.IMAGE_JPEG);
+        builder.part("fullName", "Ahmad Syazwan");
+
+        webTestClient.post()
+                .uri("/api/v1/kyc/verify")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(BodyInserters.fromMultipartData(builder.build()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("IN_REVIEW")
+                .jsonPath("$.referenceId").isNotEmpty()
+                .jsonPath("$.verifiedData.userId").isEqualTo("usr_1001")
+                .jsonPath("$.verifiedData.fullName").isEqualTo("Ahmad Syazwan")
+                .jsonPath("$.verifiedData.status").isEqualTo("IN_REVIEW");
     }
 }

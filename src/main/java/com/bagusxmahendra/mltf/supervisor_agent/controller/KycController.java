@@ -70,32 +70,11 @@ public class KycController {
      *   <li>{@code document} – identity document file (JPEG / PNG / PDF)</li>
      *   <li>{@code selfie}   – selfie photo captured from the webcam (JPEG)</li>
      *   <li>{@code fullName} – (optional) user's full name for pre-fill</li>
-     *   <li>{@code idType}   – (optional) document type hint, e.g. "MyKad"</li>
      * </ul>
      * The {@code Authorization: Bearer <JWT>} header is required and used to identify
      * the submitting user.
      *
-     * <p>Returns a {@link KycVerifyResponse} shaped to match the Angular UI's
-     * {@code KycStatusResponse} + {@code VerifiedKycData} interfaces:</p>
-     * <pre>
-     * {
-     *   "status":      "IN_REVIEW",
-     *   "message":     "KYC documents received successfully. Verification is in progress.",
-     *   "referenceId": "KYC-REV-2026-1234",
-     *   "verifiedData": {
-     *     "userId":      "auth0|...",
-     *     "fullName":    "...",
-     *     "idNumber":    null,
-     *     "idType":      "MyKad (National Identity Card)",
-     *     "dateOfBirth": null,
-     *     "nationality": null,
-     *     "matchScore":  null,
-     *     "referenceId": "KYC-REV-2026-1234",
-     *     "verifiedAt":  "8/26/2026, 2:23:00 PM",
-     *     "status":      "IN_REVIEW"
-     *   }
-     * }
-     * </pre>
+     * <p>Returns a {@link KycVerifyResponse} strictly matching the sealed UI contract.</p>
      */
     @PostMapping(value = "/verify", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<KycVerifyResponse> verify(
@@ -141,7 +120,6 @@ public class KycController {
         log.info("KYC verify submission received – userId: {}, document: {}, selfie: {}",
                 userId, document.filename(), selfie.filename());
 
-        return kycService.verify(userId, fullName);
+        return kycService.verify(userId, fullName, document, selfie);
     }
 }
-
