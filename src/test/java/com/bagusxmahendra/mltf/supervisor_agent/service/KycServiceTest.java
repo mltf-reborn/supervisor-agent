@@ -1,7 +1,9 @@
 package com.bagusxmahendra.mltf.supervisor_agent.service;
 
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ExtractedProfileData;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.FileUploadResult;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.KycVerifyResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.SupervisorKycDecision;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
@@ -36,11 +38,14 @@ class KycServiceTest {
     @Mock
     private StorageService storageService;
 
+    @Mock
+    private KycSupervisorAgentService supervisorAgentService;
+
     private KycService kycService;
 
     @BeforeEach
     void setUp() {
-        kycService = new KycService(kycRepository, storageService);
+        kycService = new KycService(kycRepository, storageService, supervisorAgentService);
     }
 
     @Test
@@ -119,7 +124,7 @@ class KycServiceTest {
     }
 
     @Test
-    void verify_withValidFiles_shouldStoreInGcsAndReturnInReviewResponse() {
+    void verify_withApprovedDecision_shouldStoreInGcsAndReturnApprovedResponse() {
         FilePart document = mock(FilePart.class);
         FilePart selfie = mock(FilePart.class);
 
@@ -143,26 +148,126 @@ class KycServiceTest {
                 "https://storage.googleapis.com/mltf-bucket/session-1/selfie/selfie.jpg"
         );
 
+        SupervisorKycDecision decision = new SupervisorKycDecision();
+        decision.setDecision("APPROVED");
+        decision.setDecisionConfidence(98.5);
+        decision.setRiskScore(5.0);
+        decision.setRiskLevel("LOW");
+        decision.setExplanation("KYC verification approved successfully with authentic document and biometric match.");
+        decision.setRemarks("SUCCESS: Document Score: 98.0%, Biometric Match: 98.5% (MATCH), External Registry: VERIFIED.");
+
+        ExtractedProfileData ext = new ExtractedProfileData();
+        ext.setFullName("Ahmad Syazwan");
+        ext.setIdCardNumber("940822-10-5819");
+        ext.setIdCardType("MyKad (National Identity Card)");
+        ext.setDateOfBirth("1994-08-22");
+        ext.setNationality("Malaysian");
+        decision.setExtractedProfile(ext);
+
         when(storageService.uploadFile(eq(document), any(), eq("document"))).thenReturn(Mono.just(docUpload));
         when(storageService.uploadFile(eq(selfie), any(), eq("selfie"))).thenReturn(Mono.just(selfieUpload));
+        when(supervisorAgentService.evaluateKyc(eq("usr_1001"), eq("Ahmad Syazwan"), eq("gs://mltf-bucket/session-1/document/id.jpg"), eq("gs://mltf-bucket/session-1/selfie/selfie.jpg"), any(), any()))
+                .thenReturn(Mono.just(decision));
         when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
 
         StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
                 .assertNext(response -> {
                     assertNotNull(response);
-                    assertEquals("IN_REVIEW", response.status());
+                    assertEquals("APPROVED", response.status());
                     assertNotNull(response.referenceId());
                     assertNotNull(response.verifiedData());
                     assertEquals("usr_1001", response.verifiedData().userId());
                     assertEquals("Ahmad Syazwan", response.verifiedData().fullName());
-                    assertEquals("IN_REVIEW", response.verifiedData().status());
+                    assertEquals("APPROVED", response.verifiedData().status());
                 })
                 .verifyComplete();
 
         org.mockito.ArgumentCaptor<KycProfile> profileCaptor = org.mockito.ArgumentCaptor.forClass(KycProfile.class);
         verify(kycRepository).save(profileCaptor.capture());
         KycProfile savedProfile = profileCaptor.getValue();
-        assertEquals("GCS document: gs://mltf-bucket/session-1/document/id.jpg, selfie: gs://mltf-bucket/session-1/selfie/selfie.jpg", savedProfile.remarks());
+        assertEquals(KycStatus.APPROVED, savedProfile.status());
+        assertEquals("940822-10-5819", savedProfile.idCardNumber());
+    }
+
+    @Test
+    void verify_withInReviewDecision_shouldStoreInGcsAndReturnInReviewResponse() {
+        FilePart document = mock(FilePart.class);
+        FilePart selfie = mock(FilePart.class);
+
+        FileUploadResult docUpload = new FileUploadResult(
+                "id.jpg", "image/jpeg", 1024L, "mltf-bucket",
+                "session-1/document/id.jpg", "gs://mltf-bucket/session-1/document/id.jpg",
+                "https://storage.googleapis.com/mltf-bucket/session-1/document/id.jpg"
+        );
+        FileUploadResult selfieUpload = new FileUploadResult(
+                "selfie.jpg", "image/jpeg", 2048L, "mltf-bucket",
+                "session-1/selfie/selfie.jpg", "gs://mltf-bucket/session-1/selfie/selfie.jpg",
+                "https://storage.googleapis.com/mltf-bucket/session-1/selfie/selfie.jpg"
+        );
+
+        SupervisorKycDecision decision = new SupervisorKycDecision();
+        decision.setDecision("IN_REVIEW");
+        decision.setDecisionConfidence(68.0);
+        decision.setRiskScore(45.0);
+        decision.setRiskLevel("MEDIUM");
+        decision.setExplanation("Biometric score 68.0% requires manual officer review.");
+
+        ExtractedProfileData ext = new ExtractedProfileData();
+        ext.setFullName("Ahmad Syazwan");
+        decision.setExtractedProfile(ext);
+
+        when(storageService.uploadFile(eq(document), any(), eq("document"))).thenReturn(Mono.just(docUpload));
+        when(storageService.uploadFile(eq(selfie), any(), eq("selfie"))).thenReturn(Mono.just(selfieUpload));
+        when(supervisorAgentService.evaluateKyc(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(decision));
+        when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
+
+        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
+                .assertNext(response -> {
+                    assertNotNull(response);
+                    assertEquals("IN_REVIEW", response.status());
+                    assertEquals("IN_REVIEW", response.verifiedData().status());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void verify_withRejectedDecision_shouldStoreInGcsAndReturnRejectedResponse() {
+        FilePart document = mock(FilePart.class);
+        FilePart selfie = mock(FilePart.class);
+
+        FileUploadResult docUpload = new FileUploadResult(
+                "id.jpg", "image/jpeg", 1024L, "mltf-bucket",
+                "session-1/document/id.jpg", "gs://mltf-bucket/session-1/document/id.jpg",
+                "https://storage.googleapis.com/mltf-bucket/session-1/document/id.jpg"
+        );
+        FileUploadResult selfieUpload = new FileUploadResult(
+                "selfie.jpg", "image/jpeg", 2048L, "mltf-bucket",
+                "session-1/selfie/selfie.jpg", "gs://mltf-bucket/session-1/selfie/selfie.jpg",
+                "https://storage.googleapis.com/mltf-bucket/session-1/selfie/selfie.jpg"
+        );
+
+        SupervisorKycDecision decision = new SupervisorKycDecision();
+        decision.setDecision("REJECTED");
+        decision.setDecisionConfidence(20.0);
+        decision.setRiskScore(95.0);
+        decision.setRiskLevel("CRITICAL");
+        decision.setRejectionReason("Document pixel tampering detected.");
+        decision.setExplanation("KYC rejected: forged document.");
+
+        when(storageService.uploadFile(eq(document), any(), eq("document"))).thenReturn(Mono.just(docUpload));
+        when(storageService.uploadFile(eq(selfie), any(), eq("selfie"))).thenReturn(Mono.just(selfieUpload));
+        when(supervisorAgentService.evaluateKyc(any(), any(), any(), any(), any(), any()))
+                .thenReturn(Mono.just(decision));
+        when(kycRepository.save(any(KycProfile.class))).thenReturn(Mono.empty());
+
+        StepVerifier.create(kycService.verify("usr_1001", "Ahmad Syazwan", document, selfie))
+                .assertNext(response -> {
+                    assertNotNull(response);
+                    assertEquals("REJECTED", response.status());
+                    assertEquals("REJECTED", response.verifiedData().status());
+                })
+                .verifyComplete();
     }
 
     @Test

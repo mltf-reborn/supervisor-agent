@@ -6,6 +6,8 @@ import com.bagusxmahendra.mltf.supervisor_agent.dto.KycVerifyResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ExtractedProfileData;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.SupervisorKycDecision;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -15,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -24,10 +27,16 @@ public class KycService {
 
     private final KycRepository kycRepository;
     private final StorageService storageService;
+    private final KycSupervisorAgentService supervisorAgentService;
 
-    public KycService(KycRepository kycRepository, StorageService storageService) {
+    public KycService(
+            KycRepository kycRepository,
+            StorageService storageService,
+            KycSupervisorAgentService supervisorAgentService
+    ) {
         this.kycRepository = kycRepository;
         this.storageService = storageService;
+        this.supervisorAgentService = supervisorAgentService;
     }
 
     /**
@@ -122,34 +131,86 @@ public class KycService {
                     log.info("GCS upload complete for sessionId: {} – documentUrl: {}, selfieUrl: {}",
                             sessionId, docResult.fileUrl(), selfieResult.fileUrl());
 
-                    KycProfile profile = new KycProfile(
+                    // Handoff to LLM Supervisor Model (Google ADK) to orchestrate KYC verification
+                    return supervisorAgentService.evaluateKyc(
                             sanitizedUserId,
                             fullName,
-                            "dummy@gmail.com",
-                            "88888",
-                            "88888",
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            null,
-                            KycStatus.IN_REVIEW,
-                            null,
-                            null,
-                            null,
-                            "GCS document: " + docResult.fileUrl() + ", selfie: " + selfieResult.fileUrl(),
-                            null,
-                            now,
-                            now,
-                            now
-                    );
+                            docResult.fileUrl(),
+                            selfieResult.fileUrl(),
+                            docResult.contentType(),
+                            selfieResult.contentType()
+                    ).flatMap(decision -> {
+                        log.info("Supervisor Agent concluded KYC verification for user: {} – decision: {}, confidence: {}%, riskScore: {}",
+                                sanitizedUserId, decision.getDecision(), decision.getDecisionConfidence(), decision.getRiskScore());
 
-                    return kycRepository.save(profile)
-                            .thenReturn(KycVerifyResponse.inReview(profile, referenceId));
+                        KycStatus kycStatus = decision.toKycStatus();
+                        ExtractedProfileData ext = decision.getExtractedProfile();
+
+                        String effectiveFullName = (fullName != null && !fullName.isBlank())
+                                ? fullName
+                                : (ext != null && ext.getFullName() != null && !ext.getFullName().isBlank() ? ext.getFullName() : "Applicant");
+
+                        String idCardNumber = ext != null ? ext.getIdCardNumber() : null;
+                        String idCardType = ext != null ? ext.getIdCardType() : null;
+
+                        LocalDate dob = null;
+                        if (ext != null && ext.getDateOfBirth() != null && !ext.getDateOfBirth().isBlank()) {
+                            try {
+                                dob = LocalDate.parse(ext.getDateOfBirth().trim());
+                            } catch (Exception ignored) {}
+                        }
+
+                        String address = ext != null ? ext.getAddress() : null;
+                        String city = ext != null ? ext.getCity() : null;
+                        String postalCode = ext != null ? ext.getPostalCode() : null;
+                        String country = ext != null ? ext.getCountry() : null;
+                        String nationality = ext != null ? ext.getNationality() : null;
+                        java.math.BigDecimal monthlyIncome = ext != null ? ext.getMonthlyIncome() : null;
+                        String occupation = ext != null ? ext.getOccupation() : null;
+
+                        String remarks = decision.getRemarks() != null ? decision.getRemarks() : decision.getExplanation();
+                        if (remarks == null || remarks.isBlank()) {
+                            remarks = "GCS document: " + docResult.fileUrl() + ", selfie: " + selfieResult.fileUrl();
+                        }
+
+                        Double riskScore = decision.getRiskScore();
+                        String riskLevel = decision.getRiskLevel();
+                        String rejectionReason = decision.getRejectionReason();
+
+                        KycProfile profile = new KycProfile(
+                                sanitizedUserId,
+                                effectiveFullName,
+                                "dummy@gmail.com",
+                                "88888",
+                                idCardNumber,
+                                idCardType,
+                                dob,
+                                address,
+                                city,
+                                postalCode,
+                                country,
+                                nationality,
+                                occupation,
+                                monthlyIncome,
+                                kycStatus,
+                                riskScore,
+                                riskLevel,
+                                rejectionReason,
+                                remarks,
+                                "supervisor-agent-llm",
+                                now,
+                                now,
+                                now
+                        );
+
+                        String message = decision.getExplanation() != null ? decision.getExplanation() :
+                                (kycStatus == KycStatus.APPROVED ? "KYC documents verified and approved successfully." :
+                                 kycStatus == KycStatus.REJECTED ? "KYC verification rejected." :
+                                 "KYC documents received successfully. Verification is in progress.");
+
+                        return kycRepository.save(profile)
+                                .thenReturn(KycVerifyResponse.from(profile, referenceId, message));
+                    });
                 });
     }
 

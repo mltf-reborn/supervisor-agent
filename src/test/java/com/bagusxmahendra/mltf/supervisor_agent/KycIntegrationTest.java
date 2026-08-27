@@ -50,7 +50,10 @@ class KycIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        this.webTestClient = WebTestClient.bindToApplicationContext(applicationContext).build();
+        this.webTestClient = WebTestClient.bindToApplicationContext(applicationContext)
+                .configureClient()
+                .responseTimeout(java.time.Duration.ofSeconds(30))
+                .build();
         this.algorithm = Algorithm.HMAC256("integration-test-secret");
     }
 
@@ -143,7 +146,7 @@ class KycIntegrationTest {
     }
 
     @Test
-    void postKycVerify_withValidJwtAndFiles_shouldStoreInGcsAndReturnInReview() {
+    void postKycVerify_withValidJwtAndFiles_shouldStoreInGcsAndReturnApproved() {
         String token = generateToken("usr_1001", Date.from(Instant.now().plusSeconds(3600)));
 
         Blob mockBlob = mock(Blob.class);
@@ -174,10 +177,10 @@ class KycIntegrationTest {
                 .expectStatus().isOk()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)
                 .expectBody()
-                .jsonPath("$.status").isEqualTo("IN_REVIEW")
+                .jsonPath("$.status").isEqualTo("APPROVED")
                 .jsonPath("$.referenceId").isNotEmpty()
                 .jsonPath("$.verifiedData.userId").isEqualTo("usr_1001")
                 .jsonPath("$.verifiedData.fullName").isEqualTo("Ahmad Syazwan")
-                .jsonPath("$.verifiedData.status").isEqualTo("IN_REVIEW");
+                .jsonPath("$.verifiedData.status").isEqualTo("APPROVED");
     }
 }
