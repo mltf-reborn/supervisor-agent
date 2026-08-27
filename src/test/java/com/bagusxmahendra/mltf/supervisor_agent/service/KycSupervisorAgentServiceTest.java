@@ -180,4 +180,98 @@ class KycSupervisorAgentServiceTest {
         })
         .verifyComplete();
     }
+
+    @Test
+    void evaluateProgrammatically_whenExternalKycNameMismatch_shouldDecideInReview() {
+        Map<String, Object> docResult = new LinkedHashMap<>();
+        docResult.put("status", "SUCCESS");
+        docResult.put("detectedDocumentType", "NATIONAL_ID");
+        docResult.put("scores", Map.of("documentScore", 95.0));
+        docResult.put("pixelLevelCheck", Map.of("isTampered", false));
+
+        Map<String, Object> selfieResult = new LinkedHashMap<>();
+        selfieResult.put("status", "SUCCESS");
+        selfieResult.put("isIdentical", true);
+        selfieResult.put("confidenceScore", 96.0);
+        selfieResult.put("matchStatus", "MATCH");
+
+        Map<String, Object> externalResult = new LinkedHashMap<>();
+        externalResult.put("status", "IN_REVIEW");
+        externalResult.put("registryStatus", "NAME_MISMATCH");
+        externalResult.put("isIdentityVerified", false);
+        externalResult.put("isBlacklisted", false);
+        externalResult.put("amlSanctionsStatus", "PASS");
+        externalResult.put("message", "External KYC name mismatch: name in registry does not match inquiry name.");
+
+        when(supervisorTools.validateDocument(any(), any(), any())).thenReturn(docResult);
+        when(supervisorTools.validateSelfie(any(), any(), any(), any(), any())).thenReturn(selfieResult);
+        when(supervisorTools.getExternalKycData(any(), any(), any(), any())).thenReturn(externalResult);
+        when(supervisorTools.createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class)))
+                .thenReturn(Map.of("status", "SUCCESS", "caseStatus", "IN_PROGRESS"));
+
+        StepVerifier.create(service.evaluateProgrammatically(
+                "usr_1001",
+                "Wrong Name",
+                "gs://bucket/id.jpg",
+                "gs://bucket/selfie.jpg",
+                "image/jpeg",
+                "image/jpeg"
+        ))
+        .assertNext(decision -> {
+            assertNotNull(decision);
+            assertEquals("IN_REVIEW", decision.getDecision());
+            assertEquals("MEDIUM", decision.getRiskLevel());
+            assertTrue(decision.getExplanation().contains("External KYC status is IN_REVIEW"));
+        })
+        .verifyComplete();
+
+        org.mockito.Mockito.verify(supervisorTools).createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class));
+    }
+
+    @Test
+    void evaluateProgrammatically_whenExternalKycIdNotFound_shouldDecideInReview() {
+        Map<String, Object> docResult = new LinkedHashMap<>();
+        docResult.put("status", "SUCCESS");
+        docResult.put("detectedDocumentType", "NATIONAL_ID");
+        docResult.put("scores", Map.of("documentScore", 95.0));
+        docResult.put("pixelLevelCheck", Map.of("isTampered", false));
+
+        Map<String, Object> selfieResult = new LinkedHashMap<>();
+        selfieResult.put("status", "SUCCESS");
+        selfieResult.put("isIdentical", true);
+        selfieResult.put("confidenceScore", 96.0);
+        selfieResult.put("matchStatus", "MATCH");
+
+        Map<String, Object> externalResult = new LinkedHashMap<>();
+        externalResult.put("status", "IN_REVIEW");
+        externalResult.put("registryStatus", "NOT_FOUND");
+        externalResult.put("isIdentityVerified", false);
+        externalResult.put("isBlacklisted", false);
+        externalResult.put("amlSanctionsStatus", "PASS");
+        externalResult.put("message", "ID Number not found in external national registry.");
+
+        when(supervisorTools.validateDocument(any(), any(), any())).thenReturn(docResult);
+        when(supervisorTools.validateSelfie(any(), any(), any(), any(), any())).thenReturn(selfieResult);
+        when(supervisorTools.getExternalKycData(any(), any(), any(), any())).thenReturn(externalResult);
+        when(supervisorTools.createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class)))
+                .thenReturn(Map.of("status", "SUCCESS", "caseStatus", "IN_PROGRESS"));
+
+        StepVerifier.create(service.evaluateProgrammatically(
+                "usr_1001",
+                "Some Name",
+                "gs://bucket/id.jpg",
+                "gs://bucket/selfie.jpg",
+                "image/jpeg",
+                "image/jpeg"
+        ))
+        .assertNext(decision -> {
+            assertNotNull(decision);
+            assertEquals("IN_REVIEW", decision.getDecision());
+            assertEquals("MEDIUM", decision.getRiskLevel());
+            assertTrue(decision.getExplanation().contains("NOT_FOUND"));
+        })
+        .verifyComplete();
+
+        org.mockito.Mockito.verify(supervisorTools).createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class));
+    }
 }

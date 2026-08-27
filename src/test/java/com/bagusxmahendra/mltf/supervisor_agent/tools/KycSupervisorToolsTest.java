@@ -89,18 +89,48 @@ class KycSupervisorToolsTest {
 
     @Test
     void getExternalKycData_shouldReturnMapOfResponse() {
-        ExternalKycResponse response = ExternalKycResponse.verified("940822-10-5819", "AHMAD SYAZWAN", "1994-08-22", "Malaysian");
+        ExternalKycResponse response = ExternalKycResponse.verified("940822-10-5819", "BUEDI GUNAWAN", "1994-08-22", "Malaysian");
 
-        when(externalKycClient.fetchExternalKycData(eq("940822-10-5819"), eq("AHMAD SYAZWAN"), any(), any()))
+        when(externalKycClient.fetchExternalKycData(eq("940822-10-5819"), eq("BUEDI GUNAWAN"), any(), any()))
                 .thenReturn(Mono.just(response));
 
-        Map<String, Object> result = tools.getExternalKycData("940822-10-5819", "AHMAD SYAZWAN", "1994-08-22", "Malaysian");
+        Map<String, Object> result = tools.getExternalKycData("940822-10-5819", "BUEDI GUNAWAN", "1994-08-22", "Malaysian");
 
         assertNotNull(result);
         assertEquals("SUCCESS", result.get("status"));
         assertEquals(true, result.get("isIdentityVerified"));
         assertEquals(false, result.get("isBlacklisted"));
         assertEquals("PASS", result.get("amlSanctionsStatus"));
+    }
+
+    @Test
+    void getExternalKycData_whenNameMismatch_shouldReturnInReviewMap() {
+        ExternalKycResponse response = ExternalKycResponse.nameMismatch("940822-10-5819", "WRONG NAME", "BUEDI GUNAWAN");
+
+        when(externalKycClient.fetchExternalKycData(eq("940822-10-5819"), eq("WRONG NAME"), any(), any()))
+                .thenReturn(Mono.just(response));
+
+        Map<String, Object> result = tools.getExternalKycData("940822-10-5819", "WRONG NAME", "1994-08-22", "Malaysian");
+
+        assertNotNull(result);
+        assertEquals("IN_REVIEW", result.get("status"));
+        assertEquals("NAME_MISMATCH", result.get("registryStatus"));
+        assertEquals(false, result.get("isIdentityVerified"));
+    }
+
+    @Test
+    void getExternalKycData_whenIdNotFound_shouldReturnInReviewMap() {
+        ExternalKycResponse response = ExternalKycResponse.notFound("UNKNOWN-ID", "ANY NAME");
+
+        when(externalKycClient.fetchExternalKycData(eq("UNKNOWN-ID"), eq("ANY NAME"), any(), any()))
+                .thenReturn(Mono.just(response));
+
+        Map<String, Object> result = tools.getExternalKycData("UNKNOWN-ID", "ANY NAME", "1994-08-22", "Malaysian");
+
+        assertNotNull(result);
+        assertEquals("IN_REVIEW", result.get("status"));
+        assertEquals("NOT_FOUND", result.get("registryStatus"));
+        assertEquals(false, result.get("isIdentityVerified"));
     }
 
     @Test

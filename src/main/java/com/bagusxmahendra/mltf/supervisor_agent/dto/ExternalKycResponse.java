@@ -118,6 +118,69 @@ public class ExternalKycResponse {
         return res;
     }
 
+    public static ExternalKycResponse inReview(String idNumber, String fullName, String reason, String registryStatus) {
+        ExternalKycResponse res = new ExternalKycResponse();
+        res.setStatus("IN_REVIEW");
+        res.setMessage("External KYC validation requires review: " + reason);
+        res.setIdNumber(idNumber);
+        res.setFullName(fullName);
+        res.setRegistryStatus(registryStatus != null ? registryStatus : "IN_REVIEW");
+        res.setIsIdentityVerified(false);
+        res.setIsBlacklisted(false);
+        res.setAmlSanctionsStatus("PASS");
+        res.setPepStatus("NOT_PEP");
+        res.setCreditScore(650);
+        res.setRiskLevel("MEDIUM");
+        res.setRiskScore(45.0);
+        res.setRemarks("External check requires review: " + reason);
+        res.setFlags(List.of("MANUAL_REVIEW_REQUIRED"));
+        res.setCheckedAt(Instant.now());
+        return res;
+    }
+
+    public static ExternalKycResponse nameMismatch(String idNumber, String requestedName, String registryName) {
+        ExternalKycResponse res = new ExternalKycResponse();
+        res.setStatus("IN_REVIEW");
+        res.setMessage(String.format("External KYC name mismatch: Provided name '%s' does not match registry record '%s'.",
+                requestedName != null ? requestedName : "", registryName != null ? registryName : ""));
+        res.setIdNumber(idNumber);
+        res.setFullName(registryName != null ? registryName : requestedName);
+        res.setRegistryStatus("NAME_MISMATCH");
+        res.setIsIdentityVerified(false);
+        res.setIsBlacklisted(false);
+        res.setAmlSanctionsStatus("PASS");
+        res.setPepStatus("NOT_PEP");
+        res.setCreditScore(650);
+        res.setRiskLevel("MEDIUM");
+        res.setRiskScore(45.0);
+        res.setRemarks(String.format("ID Number matched in registry, but name '%s' differs from official record '%s'. Status set to IN_REVIEW.",
+                requestedName != null ? requestedName : "", registryName != null ? registryName : ""));
+        res.setFlags(List.of("NAME_MISMATCH_REVIEW"));
+        res.setCheckedAt(Instant.now());
+        return res;
+    }
+
+    public static ExternalKycResponse notFound(String idNumber, String requestedName) {
+        ExternalKycResponse res = new ExternalKycResponse();
+        res.setStatus("IN_REVIEW");
+        res.setMessage(String.format("External KYC record not found for ID Number '%s'.", idNumber != null ? idNumber : "N/A"));
+        res.setIdNumber(idNumber);
+        res.setFullName(requestedName);
+        res.setRegistryStatus("NOT_FOUND");
+        res.setIsIdentityVerified(false);
+        res.setIsBlacklisted(false);
+        res.setAmlSanctionsStatus("PASS");
+        res.setPepStatus("NOT_PEP");
+        res.setCreditScore(500);
+        res.setRiskLevel("MEDIUM");
+        res.setRiskScore(45.0);
+        res.setRemarks(String.format("ID Number '%s' not found in external national registry. Status set to IN_REVIEW for manual verification.",
+                idNumber != null ? idNumber : "N/A"));
+        res.setFlags(List.of("ID_NOT_FOUND_REVIEW"));
+        res.setCheckedAt(Instant.now());
+        return res;
+    }
+
     public String getStatus() {
         return status;
     }

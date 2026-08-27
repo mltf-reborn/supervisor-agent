@@ -207,15 +207,15 @@ public class KycSupervisorAgentService {
             // Extract fields from document validation
             String extractedName = (fullName != null && !fullName.isBlank())
                     ? fullName
-                    : extractString(docResult, "fullName", "AHMAD SYAZWAN BIN ABDULLAH");
-            String extractedIdNumber = extractString(docResult, "idNumber", "940822-10-5819");
-            String extractedIdType = extractString(docResult, "idType", "MyKad (National Identity Card)");
-            String extractedDob = extractString(docResult, "dateOfBirth", "1994-08-22");
-            String extractedNationality = extractString(docResult, "nationality", "Malaysian");
-            String extractedAddress = extractString(docResult, "address", "NO 12 JALAN MAJU 3, TAMAN BUKIT INDAH");
-            String extractedCity = extractString(docResult, "city", "JOHOR BAHRU");
-            String extractedPostalCode = extractString(docResult, "postalCode", "79100");
-            String extractedCountry = extractString(docResult, "country", "MALAYSIA");
+                    : extractString(docResult, "fullName", null);
+            String extractedIdNumber = extractString(docResult, "idNumber", null);
+            String extractedIdType = extractString(docResult, "idType", null);
+            String extractedDob = extractString(docResult, "dateOfBirth", null);
+            String extractedNationality = extractString(docResult, "nationality", null);
+            String extractedAddress = extractString(docResult, "address", null);
+            String extractedCity = extractString(docResult, "city", null);
+            String extractedPostalCode = extractString(docResult, "postalCode", null);
+            String extractedCountry = extractString(docResult, "country", null);
 
             boolean isTampered = isDocumentTampered(docResult);
             double docScore = extractDocumentScore(docResult);
@@ -233,9 +233,13 @@ public class KycSupervisorAgentService {
                     extractedDob,
                     extractedNationality
             );
+            String externalStatus = extractString(externalResult, "status", "SUCCESS");
             boolean isIdentityVerified = extractBoolean(externalResult, "isIdentityVerified", true);
             boolean isBlacklisted = extractBoolean(externalResult, "isBlacklisted", false);
             String amlStatus = extractString(externalResult, "amlSanctionsStatus", "PASS");
+            String registryStatus = extractString(externalResult, "registryStatus", "ACTIVE");
+            String externalRemarks = extractString(externalResult, "remarks", "");
+            String externalMessage = extractString(externalResult, "message", "");
 
             // Step 4: Decision synthesis and explainability
             SupervisorKycDecision decision = new SupervisorKycDecision();
@@ -261,7 +265,7 @@ public class KycSupervisorAgentService {
             double rejectionThreshold = properties.getRejectionThreshold();
 
             // Evaluate Fraud / Security Failures
-            if (isTampered || isBlacklisted || "NO_MATCH".equalsIgnoreCase(matchStatus) || selfieScore < rejectionThreshold || "HIT".equalsIgnoreCase(amlStatus)) {
+            if (isTampered || isBlacklisted || "NO_MATCH".equalsIgnoreCase(matchStatus) || selfieScore < rejectionThreshold || "HIT".equalsIgnoreCase(amlStatus) || "SUSPICIOUS".equalsIgnoreCase(externalStatus)) {
                 decision.setDecision("REJECTED");
                 decision.setDecisionConfidence(selfieScore);
                 decision.setRiskScore(90.0);
@@ -269,7 +273,7 @@ public class KycSupervisorAgentService {
 
                 StringBuilder rejectReason = new StringBuilder();
                 if (isTampered) rejectReason.append("Document pixel tampering detected. ");
-                if (isBlacklisted) rejectReason.append("Identity flagged on central blacklist. ");
+                if (isBlacklisted || "SUSPICIOUS".equalsIgnoreCase(externalStatus)) rejectReason.append("Identity flagged on central blacklist or AML watchlist. ");
                 if ("NO_MATCH".equalsIgnoreCase(matchStatus) || selfieScore < rejectionThreshold) {
                     rejectReason.append("Biometric facial comparison failed (no match, score: ").append(selfieScore).append("%). ");
                 }
@@ -281,8 +285,13 @@ public class KycSupervisorAgentService {
                 return decision;
             }
 
+            boolean isExternalKycInReview = "IN_REVIEW".equalsIgnoreCase(externalStatus)
+                    || "NAME_MISMATCH".equalsIgnoreCase(registryStatus)
+                    || "NOT_FOUND".equalsIgnoreCase(registryStatus)
+                    || !isIdentityVerified;
+
             // Evaluate Automated Approval (Success)
-            if (selfieScore >= approvedThreshold && docScore >= 80.0 && !isTampered && isIdentical && "PASS".equalsIgnoreCase(amlStatus) && isIdentityVerified) {
+            if (selfieScore >= approvedThreshold && docScore >= 80.0 && !isTampered && isIdentical && "PASS".equalsIgnoreCase(amlStatus) && isIdentityVerified && !isExternalKycInReview && "SUCCESS".equalsIgnoreCase(externalStatus)) {
                 decision.setDecision("APPROVED");
                 decision.setDecisionConfidence(selfieScore);
                 decision.setRiskScore(5.0);
@@ -299,21 +308,41 @@ public class KycSupervisorAgentService {
                 return decision;
             }
 
-            // Fall short of threshold -> In Review
+            // Fall short of threshold or External KYC is IN_REVIEW -> In Review
             decision.setDecision("IN_REVIEW");
             decision.setDecisionConfidence(selfieScore);
             decision.setRiskScore(45.0);
             decision.setRiskLevel("MEDIUM");
             decision.setRejectionReason(null);
-            String explanation = String.format(
-                    "KYC verification requires manual compliance review. Biometric confidence score (%.1f%%) falls short of the automated approval threshold (%.1f%%). Document score: %.1f%%.",
-                    selfieScore, approvedThreshold, docScore
-            );
+
+            String explanation;
+            String remarks;
+            if (isExternalKycInReview) {
+                String detail = (externalMessage != null && !externalMessage.isBlank()) ? externalMessage : externalRemarks;
+                explanation = String.format(
+                        "KYC verification requires manual compliance review: External KYC status is IN_REVIEW (%s). %s Document score: %.1f%%, Biometric confidence: %.1f%%.",
+                        registryStatus != null ? registryStatus : "IN_REVIEW",
+                        detail != null && !detail.isBlank() ? detail : "Discrepancy in external identity registry.",
+                        docScore,
+                        selfieScore
+                );
+                remarks = String.format(
+                        "IN_REVIEW: External KYC %s (%s). Biometric Match: %.1f%%.",
+                        registryStatus != null ? registryStatus : "IN_REVIEW",
+                        externalStatus,
+                        selfieScore
+                );
+            } else {
+                explanation = String.format(
+                        "KYC verification requires manual compliance review. Biometric confidence score (%.1f%%) falls short of the automated approval threshold (%.1f%%). Document score: %.1f%%.",
+                        selfieScore, approvedThreshold, docScore
+                );
+                remarks = String.format(
+                        "IN_REVIEW: Confidence: %.1f%% (Threshold: %.1f%%), Document Score: %.1f%%.",
+                        selfieScore, approvedThreshold, docScore
+                );
+            }
             decision.setExplanation(explanation);
-            String remarks = String.format(
-                    "IN_REVIEW: Confidence: %.1f%% (Threshold: %.1f%%), Document Score: %.1f%%.",
-                    selfieScore, approvedThreshold, docScore
-            );
             decision.setRemarks(remarks);
 
             // Asynchronous human-in-the-loop escalation via Case Management Service (/api/v1/case)
@@ -402,13 +431,9 @@ public class KycSupervisorAgentService {
         try {
             SupervisorKycDecision decision = objectMapper.readValue(clean, SupervisorKycDecision.class);
             if (decision != null && decision.getDecision() != null) {
-                if (decision.getExtractedProfile() == null) {
+                if (decision.getExtractedProfile() == null && fullName != null) {
                     ExtractedProfileData profile = new ExtractedProfileData();
-                    profile.setFullName(fullName != null ? fullName : "AHMAD SYAZWAN BIN ABDULLAH");
-                    profile.setIdCardNumber("940822-10-5819");
-                    profile.setIdCardType("MyKad (National Identity Card)");
-                    profile.setDateOfBirth("1994-08-22");
-                    profile.setNationality("Malaysian");
+                    profile.setFullName(fullName);
                     decision.setExtractedProfile(profile);
                 }
                 if (decision.toKycStatus() == com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus.IN_REVIEW) {

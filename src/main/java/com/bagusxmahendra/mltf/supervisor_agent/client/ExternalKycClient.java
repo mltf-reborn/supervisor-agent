@@ -21,6 +21,7 @@ import java.util.List;
 
 /**
  * Client for communicating with the External KYC/AML Verification endpoint (/api/v1/external/kyc).
+ * Uses JSON dataset (/data/mock-external-kyc.json) for mock verification.
  */
 @Component
 public class ExternalKycClient {
@@ -42,27 +43,19 @@ public class ExternalKycClient {
         loadMockData();
     }
 
-    private void loadMockData() {
+    public synchronized void loadMockData() {
         try (InputStream is = getClass().getResourceAsStream(MOCK_DATA_PATH)) {
             if (is != null) {
                 this.mockKycRecords = objectMapper.readValue(is, new TypeReference<List<ExternalKycResponse>>() {});
-                log.info("Loaded {} mock External KYC records from {}", mockKycRecords.size(), MOCK_DATA_PATH);
+                log.info("Loaded {} mock External KYC records from JSON: {}", mockKycRecords.size(), MOCK_DATA_PATH);
             } else {
-                log.warn("Mock data file {} not found on classpath, using built-in defaults", MOCK_DATA_PATH);
-                this.mockKycRecords = createDefaultMockRecords();
+                log.warn("Mock data file {} not found on classpath", MOCK_DATA_PATH);
+                this.mockKycRecords = Collections.emptyList();
             }
         } catch (Exception e) {
-            log.warn("Failed to load mock data from {} ({}): using built-in defaults", MOCK_DATA_PATH, e.getMessage());
-            this.mockKycRecords = createDefaultMockRecords();
+            log.error("Failed to load mock data from {} ({}): no mock records loaded", MOCK_DATA_PATH, e.getMessage());
+            this.mockKycRecords = Collections.emptyList();
         }
-    }
-
-    private List<ExternalKycResponse> createDefaultMockRecords() {
-        List<ExternalKycResponse> records = new ArrayList<>();
-        records.add(ExternalKycResponse.verified("940822-10-5819", "AHMAD SYAZWAN BIN ABDULLAH", "1994-08-22", "Malaysian"));
-        records.add(ExternalKycResponse.verified("880512-14-5123", "JOHN DOE", "1988-05-12", "American"));
-        records.add(ExternalKycResponse.suspicious("FRAUD-12345", "ROBERT JOHNSON", "National registry blacklist match: High risk fraud flagged by financial intelligence unit."));
-        return records;
     }
 
     /**
@@ -89,13 +82,23 @@ public class ExternalKycClient {
                 .doOnSuccess(res -> log.info("Received External KYC response: status={}, verified={}, riskLevel={}",
                         res.getStatus(), res.getIsIdentityVerified(), res.getRiskLevel()))
                 .onErrorResume(err -> {
-                    log.warn("External KYC API endpoint not responding or unavailable ({}), generating mock result", err.getMessage());
+                    log.warn("External KYC API endpoint not responding or unavailable ({}), generating mock result from JSON dataset", err.getMessage());
                     return Mono.just(generateMockKycData(idNumber, fullName, dateOfBirth, nationality));
                 });
     }
 
     /**
-     * Generates realistic simulated mock KYC data based on input characteristics and loaded JSON dataset.
+     * Generates simulated mock KYC data strictly using the JSON dataset (/data/mock-external-kyc.json).
+     *
+     * Rules:
+     * 1. Inquiry is performed using IDNumber against the JSON dataset.
+     * 2. If IDNumber is not found in the JSON dataset -> status IN_REVIEW (registryStatus: NOT_FOUND).
+     * 3. If IDNumber is matched:
+     *    a. If record is SUSPICIOUS/blacklisted -> return SUSPICIOUS record as configured in JSON.
+     *    b. Compare the inquiry full name with the record full name:
+     *       - Must be EXACTLY the same (case-insensitive, normalized whitespace).
+     *       - If NOT same -> status IN_REVIEW (registryStatus: NAME_MISMATCH).
+     *       - If EXACTLY THE SAME -> return verified record (status from JSON / SUCCESS).
      */
     public ExternalKycResponse generateMockKycData(
             String idNumber,
@@ -105,96 +108,64 @@ public class ExternalKycClient {
     ) {
         String trimmedId = (idNumber != null && !idNumber.isBlank()) ? idNumber.trim() : null;
         String trimmedName = (fullName != null && !fullName.isBlank()) ? fullName.trim() : null;
-        String trimmedDob = (dateOfBirth != null && !dateOfBirth.isBlank()) ? dateOfBirth.trim() : null;
-        String trimmedNat = (nationality != null && !nationality.isBlank()) ? nationality.trim() : null;
 
-        // Check for fraud/blacklist simulation triggers
-        boolean isFraudTrigger = false;
-        if (trimmedId != null) {
-            String upper = trimmedId.toUpperCase();
-            if (upper.contains("FRAUD") || upper.contains("BLACKLIST") || upper.contains("SCAM")) {
-                isFraudTrigger = true;
-            }
-        }
-        if (trimmedName != null) {
-            String upper = trimmedName.toUpperCase();
-            if (upper.contains("FRAUD") || upper.contains("BLACKLIST") || upper.contains("SCAM")) {
-                isFraudTrigger = true;
-            }
+        // 1. Inquiry requires IDNumber
+        if (trimmedId == null) {
+            log.warn("External KYC inquiry ID number is missing -> status IN_REVIEW");
+            return ExternalKycResponse.notFound(null, trimmedName);
         }
 
-        if (isFraudTrigger) {
-            ExternalKycResponse suspiciousTemplate = mockKycRecords.stream()
-                    .filter(r -> Boolean.TRUE.equals(r.getIsBlacklisted()) || "SUSPICIOUS".equalsIgnoreCase(r.getStatus()))
-                    .findFirst()
-                    .orElse(null);
-
-            if (suspiciousTemplate != null) {
-                return cloneResponse(suspiciousTemplate, trimmedId, trimmedName, trimmedDob, trimmedNat);
-            }
-            return ExternalKycResponse.suspicious(
-                    trimmedId != null ? trimmedId : "FRAUD-12345",
-                    trimmedName != null ? trimmedName : "Fake Person",
-                    "National registry blacklist match: High risk fraud flagged by financial intelligence unit."
-            );
-        }
-
-        // 1. Try exact or normalized match by ID Number
-        if (trimmedId != null) {
-            for (ExternalKycResponse record : mockKycRecords) {
-                if (record.getIdNumber() != null && (
-                        record.getIdNumber().equalsIgnoreCase(trimmedId) ||
-                        record.getIdNumber().replace("-", "").equalsIgnoreCase(trimmedId.replace("-", ""))
-                )) {
-                    return cloneResponse(record, trimmedId, trimmedName, trimmedDob, trimmedNat);
+        // 2. Search record in JSON dataset by IDNumber (exact or normalized without hyphens)
+        ExternalKycResponse matchedRecord = null;
+        for (ExternalKycResponse record : mockKycRecords) {
+            if (record.getIdNumber() != null) {
+                String recId = record.getIdNumber().trim();
+                if (recId.equalsIgnoreCase(trimmedId) ||
+                    recId.replace("-", "").equalsIgnoreCase(trimmedId.replace("-", ""))) {
+                    matchedRecord = record;
+                    break;
                 }
             }
         }
 
-        // 2. Try match by Full Name
-        if (trimmedName != null) {
-            for (ExternalKycResponse record : mockKycRecords) {
-                if (record.getFullName() != null && (
-                        record.getFullName().equalsIgnoreCase(trimmedName) ||
-                        record.getFullName().toUpperCase().contains(trimmedName.toUpperCase()) ||
-                        trimmedName.toUpperCase().contains(record.getFullName().toUpperCase())
-                )) {
-                    return cloneResponse(record, trimmedId, trimmedName, trimmedDob, trimmedNat);
-                }
-            }
+        // 3. If ID not found in JSON dataset -> status IN_REVIEW
+        if (matchedRecord == null) {
+            log.info("External KYC inquiry ID [{}] not found in JSON dataset -> status IN_REVIEW", trimmedId);
+            return ExternalKycResponse.notFound(trimmedId, trimmedName);
         }
 
-        // 3. Fallback: Use the first verified record from mock data as template, or default
-        ExternalKycResponse defaultTemplate = mockKycRecords.stream()
-                .filter(r -> Boolean.FALSE.equals(r.getIsBlacklisted()) && "SUCCESS".equalsIgnoreCase(r.getStatus()))
-                .findFirst()
-                .orElse(null);
-
-        if (defaultTemplate != null) {
-            return cloneResponse(defaultTemplate, trimmedId, trimmedName, trimmedDob, trimmedNat);
+        // If the matched JSON record is flagged as SUSPICIOUS or blacklisted
+        if (Boolean.TRUE.equals(matchedRecord.getIsBlacklisted()) || "SUSPICIOUS".equalsIgnoreCase(matchedRecord.getStatus())) {
+            log.info("External KYC inquiry ID [{}] matched blacklisted/suspicious record in JSON -> {}", trimmedId, matchedRecord.getStatus());
+            return cloneResponse(matchedRecord);
         }
 
-        String effectiveId = trimmedId != null ? trimmedId : "940822-10-5819";
-        String effectiveName = trimmedName != null ? trimmedName : "AHMAD SYAZWAN BIN ABDULLAH";
-        String effectiveDob = trimmedDob != null ? trimmedDob : "1994-08-22";
-        String effectiveNat = trimmedNat != null ? trimmedNat : "Malaysian";
-        return ExternalKycResponse.verified(effectiveId, effectiveName, effectiveDob, effectiveNat);
+        // 4. If ID matched, compare the full name: must be exactly the same
+        String normInputName = (trimmedName != null) ? trimmedName.replaceAll("\\s+", " ").trim() : "";
+        String normRecordName = (matchedRecord.getFullName() != null) ? matchedRecord.getFullName().replaceAll("\\s+", " ").trim() : "";
+
+        boolean isExactSameName = !normInputName.isEmpty() && normInputName.equalsIgnoreCase(normRecordName);
+
+        if (!isExactSameName) {
+            log.info("External KYC inquiry ID [{}] matched, but input name [{}] does not match JSON registry name [{}] -> status IN_REVIEW",
+                    trimmedId, trimmedName, matchedRecord.getFullName());
+            return ExternalKycResponse.nameMismatch(trimmedId, trimmedName, matchedRecord.getFullName());
+        }
+
+        // 5. ID matched and Name is exactly the same -> Return verified record from JSON
+        log.info("External KYC inquiry ID [{}] and name [{}] verified successfully from JSON record",
+                trimmedId, matchedRecord.getFullName());
+        return cloneResponse(matchedRecord);
     }
 
-    private ExternalKycResponse cloneResponse(
-            ExternalKycResponse source,
-            String overrideId,
-            String overrideName,
-            String overrideDob,
-            String overrideNat
-    ) {
+    private ExternalKycResponse cloneResponse(ExternalKycResponse source) {
         ExternalKycResponse copy = new ExternalKycResponse();
         copy.setStatus(source.getStatus());
         copy.setMessage(source.getMessage());
-        copy.setIdNumber(overrideId != null ? overrideId : source.getIdNumber());
-        copy.setFullName(overrideName != null ? overrideName : source.getFullName());
-        copy.setDateOfBirth(overrideDob != null ? overrideDob : source.getDateOfBirth());
-        copy.setNationality(overrideNat != null ? overrideNat : (source.getNationality() != null ? source.getNationality() : "Malaysian"));
+        copy.setIdNumber(source.getIdNumber());
+        copy.setFullName(source.getFullName());
+        copy.setDateOfBirth(source.getDateOfBirth());
+        copy.setNationality(source.getNationality());
         copy.setRegistryStatus(source.getRegistryStatus());
         copy.setIsIdentityVerified(source.getIsIdentityVerified());
         copy.setIsBlacklisted(source.getIsBlacklisted());
@@ -211,5 +182,9 @@ public class ExternalKycClient {
 
     public List<ExternalKycResponse> getMockKycRecords() {
         return Collections.unmodifiableList(mockKycRecords);
+    }
+
+    public void setMockKycRecords(List<ExternalKycResponse> records) {
+        this.mockKycRecords = records != null ? new ArrayList<>(records) : new ArrayList<>();
     }
 }
