@@ -48,7 +48,7 @@ public class DocumentProcessingClient {
                 .bodyValue(request)
                 .retrieve()
                 .bodyToMono(DocProcessingResponseDto.class)
-                .timeout(Duration.ofSeconds(3))
+                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                 .doOnSuccess(res -> log.info("Received document processing response: status={}, detectedType={}",
                         res.getStatus(), res.getDetectedDocumentType()))
                 .onErrorResume(err -> {
@@ -79,17 +79,11 @@ public class DocumentProcessingClient {
         scores.put("scoringBreakdown", "Originality: 100.0% (clean edges), Confidence: 95.0% (legible text)");
         res.setScores(scores);
 
-        Map<String, Object> extractedFields = new LinkedHashMap<>();
-        extractedFields.put("fullName", "AHMAD SYAZWAN BIN ABDULLAH");
-        extractedFields.put("idNumber", "940822-10-5819");
-        extractedFields.put("idType", "MyKad (National Identity Card)");
-        extractedFields.put("dateOfBirth", "1994-08-22");
-        extractedFields.put("nationality", "Malaysian");
-        extractedFields.put("address", "NO 12 JALAN MAJU 3, TAMAN BUKIT INDAH");
-        extractedFields.put("city", "JOHOR BAHRU");
-        extractedFields.put("postalCode", "79100");
-        extractedFields.put("country", "MALAYSIA");
-        res.setExtractedFields(extractedFields);
+        // Do not populate extractedFields with null values in the fallback.
+        // The Document Processing Agent was unreachable, so no OCR data is available.
+        // Leaving extractedFields null (omitted via @JsonInclude NON_NULL) correctly signals
+        // "no data extracted" to downstream consumers, rather than a map of explicit nulls
+        // that would mislead the supervisor's extractString() helper into thinking fields exist.
 
         return res;
     }

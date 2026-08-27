@@ -124,4 +124,21 @@ public class KycController {
 
         return kycService.verify(userId, email, fullName, document, selfie);
     }
+    /**
+     * Webhook/Endpoint for Ops to update the KYC decision (Accept/Reject).
+     */
+    @PostMapping(value = "/case-decision", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public Mono<KycStatusResponse> updateKycDecision(
+            @org.springframework.web.bind.annotation.RequestBody com.bagusxmahendra.mltf.supervisor_agent.dto.CaseDecisionDto request
+    ) {
+        if (request == null || request.getUserId() == null) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Payload and userId are required"
+            ));
+        }
+
+        log.info("Received ops decision for KYC case - userId: {}, status: {}", request.getUserId(), request.getStatus());
+        return kycService.updateKycDecision(request.getUserId(), request.getStatus(), request.getRemarks(), request.getVerifiedBy());
+    }
 }

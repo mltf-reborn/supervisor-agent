@@ -84,6 +84,52 @@ public class KycService {
     }
 
     /**
+     * Updates the KYC decision (e.g. from Ops / Case Management).
+     */
+    public Mono<KycStatusResponse> updateKycDecision(String userId, String statusStr, String remarks, String verifiedBy) {
+        if (userId == null || userId.trim().isEmpty()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "User ID is required"));
+        }
+        
+        KycStatus newStatus = KycStatus.fromString(statusStr);
+        if (newStatus == KycStatus.PENDING) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or unrecognized status: " + statusStr));
+        }
+
+        return kycRepository.findByUserId(userId)
+                .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "KYC profile not found for user: " + userId)))
+                .flatMap(profile -> {
+                    KycProfile updated = new KycProfile(
+                            profile.userId(),
+                            profile.fullName(),
+                            profile.email(),
+                            profile.phoneNumber(),
+                            profile.idCardNumber(),
+                            profile.idCardType(),
+                            profile.dateOfBirth(),
+                            profile.address(),
+                            profile.city(),
+                            profile.postalCode(),
+                            profile.country(),
+                            profile.nationality(),
+                            profile.occupation(),
+                            profile.monthlyIncome(),
+                            newStatus,
+                            profile.riskScore(),
+                            profile.riskLevel(),
+                            newStatus == KycStatus.REJECTED ? remarks : profile.rejectionReason(),
+                            remarks != null ? remarks : profile.remarks(),
+                            verifiedBy != null ? verifiedBy : profile.verifiedBy(),
+                            Instant.now(), // verifiedAt
+                            profile.createdAt(),
+                            Instant.now()  // updatedAt
+                    );
+                    log.info("Updating KYC profile for userId: {} to status: {}", userId, newStatus);
+                    return kycRepository.save(updated).thenReturn(KycStatusResponse.from(updated));
+                });
+    }
+
+    /**
      * Enhanced KYC verification: stores the 2 files (identity document and webcam selfie)
      * into Google Cloud Storage (BucketName configured in property file: mltf-bucket)
      * with the session ID, saves profile to Spanner, and returns the sealed UI response.

@@ -28,10 +28,13 @@ CREATE TABLE kyc_profile (
     rejection_reason STRING(1000),
     remarks STRING(1000),
     verified_by STRING(64),             -- Supervisor agent / reviewer ID
-    verified_at TIMESTAMP,
+    verified_at TIMESTAMP OPTIONS (allow_commit_timestamp = true),
     created_at TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     updated_at TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)
 ) PRIMARY KEY (user_id);
+
+-- Migration DDL for existing database instances:
+-- ALTER TABLE kyc_profile ALTER COLUMN verified_at SET OPTIONS (allow_commit_timestamp = true);
 
 -- Secondary Indexes for query performance
 CREATE INDEX idx_kyc_profile_email ON kyc_profile(email);
