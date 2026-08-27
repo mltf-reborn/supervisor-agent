@@ -30,3 +30,78 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+tasks.named('jar') {
+	enabled = false
+}
+
+abstract class MinikubeDeployTask extends DefaultTask {
+	@javax.inject.Inject
+	abstract org.gradle.process.ExecOperations getExecOperations()
+
+	@TaskAction
+	def deploy() {
+		def version = project.version.toString()
+
+		println ">>> [1/4] Building Docker image 'supervisor-agent:${version}' with VERSION=${version}..."
+		execOperations.exec {
+			commandLine 'docker', 'build', '--build-arg', "VERSION=${version}", '-t', "supervisor-agent:${version}", '-t', 'supervisor-agent:latest', '.'
+		}
+
+		println ">>> [2/4] Loading Docker image into Minikube..."
+		execOperations.exec {
+			commandLine 'minikube', 'image', 'load', "supervisor-agent:${version}"
+		}
+
+		println ">>> [3/4] Applying Kubernetes manifests from k8s/..."
+		execOperations.exec {
+			commandLine 'kubectl', 'apply', '-k', 'k8s', '--server-side', '--force-conflicts'
+		}
+
+		println ">>> [4/4] Waiting for supervisor-agent deployment rollout..."
+		execOperations.exec {
+			commandLine 'kubectl', 'rollout', 'status', 'deployment/supervisor-agent', '--timeout=180s'
+		}
+
+		println "\n========================================================"
+		println " Supervisor Agent successfully deployed to Minikube!"
+		println "========================================================"
+		println "Service status:"
+		execOperations.exec {
+			commandLine 'kubectl', 'get', 'svc', 'supervisor-agent'
+		}
+		println "\nMinikube Service URL:"
+		try {
+			execOperations.exec {
+				commandLine 'minikube', 'service', 'supervisor-agent', '--url'
+			}
+		} catch (Exception ignored) {
+			println "Run: minikube service supervisor-agent --url"
+		}
+	}
+}
+
+abstract class MinikubeUndeployTask extends DefaultTask {
+	@javax.inject.Inject
+	abstract org.gradle.process.ExecOperations getExecOperations()
+
+	@TaskAction
+	def undeploy() {
+		println ">>> Deleting Kubernetes resources from Minikube..."
+		execOperations.exec {
+			commandLine 'kubectl', 'delete', '-k', 'k8s', '--ignore-not-found=true'
+		}
+		println ">>> supervisor-agent resources undeployed successfully."
+	}
+}
+
+tasks.register('minikubeDeploy', MinikubeDeployTask) {
+	group = 'deployment'
+	description = 'Builds the JAR, builds & loads Docker image into Minikube, applies k8s manifests, and waits for rollout.'
+	dependsOn 'bootJar'
+}
+
+tasks.register('minikubeUndeploy', MinikubeUndeployTask) {
+	group = 'deployment'
+	description = 'Deletes all supervisor-agent Kubernetes resources from Minikube.'
+}
