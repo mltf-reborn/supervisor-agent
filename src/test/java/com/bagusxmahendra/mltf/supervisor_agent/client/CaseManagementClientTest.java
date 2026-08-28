@@ -35,6 +35,7 @@ class CaseManagementClientTest {
         request.setRiskScore(45.0);
         request.setRiskLevel("MEDIUM");
         request.setRemarks("Biometric match inconclusive, manual review required.");
+        request.setExternalKycDetails(Map.of("status", "SUCCESS", "isIdentityVerified", true));
         request.setKycDetails(Map.of("status", "IN_REVIEW"));
 
         StepVerifier.create(client.createCase(request))

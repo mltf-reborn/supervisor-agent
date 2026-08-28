@@ -25,7 +25,7 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_withExactMatchRequest_shouldReturnSuccess() {
-        ExternalKycRequest request = new ExternalKycRequest("940822-10-5819", "BAGUS MAHENDRA WICAKSONO", "1994-08-22", "Malaysian");
+        ExternalKycRequest request = new ExternalKycRequest("1514-8308-002404", "BAGUS MAHENDRA WICAKSONO", "1994-08-22", "Malaysian");
 
         webTestClient.post()
                 .uri("/api/v1/external/kyc")
@@ -35,7 +35,7 @@ class ExternalKycControllerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.status").isEqualTo("SUCCESS")
-                .jsonPath("$.idNumber").isEqualTo("940822-10-5819")
+                .jsonPath("$.idNumber").isEqualTo("1514-8308-002404")
                 .jsonPath("$.fullName").isEqualTo("BAGUS MAHENDRA WICAKSONO")
                 .jsonPath("$.isIdentityVerified").isEqualTo(true)
                 .jsonPath("$.isBlacklisted").isEqualTo(false)
@@ -44,7 +44,7 @@ class ExternalKycControllerTest {
 
     @Test
     void verifyExternalKycPost_whenNameMismatch_shouldReturnInReview() {
-        ExternalKycRequest request = new ExternalKycRequest("940822-10-5819", "AHMAD SYAZWAN", "1994-08-22", "Malaysian");
+        ExternalKycRequest request = new ExternalKycRequest("1514-8308-002404", "AHMAD SYAZWAN", "1994-08-22", "Malaysian");
 
         webTestClient.post()
                 .uri("/api/v1/external/kyc")
@@ -79,7 +79,7 @@ class ExternalKycControllerTest {
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v1/external/kyc")
-                        .queryParam("idNumber", "940822-10-5819")
+                        .queryParam("idNumber", "1514-8308-002404")
                         .queryParam("fullName", "BAGUS MAHENDRA WICAKSONO")
                         .build())
                 .exchange()
@@ -127,7 +127,7 @@ class ExternalKycControllerTest {
     @Test
     void externalKycClient_shouldLoad3RecordsFromJson() {
         org.junit.jupiter.api.Assertions.assertEquals(3, externalKycClient.getMockKycRecords().size());
-        org.junit.jupiter.api.Assertions.assertEquals("940822-10-5819", externalKycClient.getMockKycRecords().get(0).getIdNumber());
+        org.junit.jupiter.api.Assertions.assertEquals("1514-8308-002404", externalKycClient.getMockKycRecords().get(0).getIdNumber());
         org.junit.jupiter.api.Assertions.assertEquals("880512-14-5123", externalKycClient.getMockKycRecords().get(1).getIdNumber());
         org.junit.jupiter.api.Assertions.assertEquals("FRAUD-12345", externalKycClient.getMockKycRecords().get(2).getIdNumber());
     }

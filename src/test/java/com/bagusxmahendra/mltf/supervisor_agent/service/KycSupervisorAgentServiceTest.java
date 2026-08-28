@@ -137,7 +137,12 @@ class KycSupervisorAgentServiceTest {
         })
         .verifyComplete();
 
-        org.mockito.Mockito.verify(supervisorTools).createCase(any(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class));
+        org.mockito.ArgumentCaptor<com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest> captor =
+                org.mockito.ArgumentCaptor.forClass(com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest.class);
+        org.mockito.Mockito.verify(supervisorTools).createCase(captor.capture());
+        com.bagusxmahendra.mltf.supervisor_agent.dto.CreateCaseRequest capturedReq = captor.getValue();
+        assertNotNull(capturedReq.getExternalKycDetails());
+        assertEquals("SUCCESS", ((Map<?, ?>) capturedReq.getExternalKycDetails()).get("status"));
     }
 
     @Test

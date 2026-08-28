@@ -360,6 +360,7 @@ public class KycSupervisorAgentService {
                 caseReq.setAssignedTo(null);
                 caseReq.setDocumentVerificationDetails(docResult);
                 caseReq.setSelfieDetails(selfieResult);
+                caseReq.setExternalKycDetails(externalResult);
 
                 Map<String, Object> kycDetailsMap = new LinkedHashMap<>();
                 kycDetailsMap.put("userId", caseReq.getUserId());
@@ -451,6 +452,7 @@ public class KycSupervisorAgentService {
                         caseReq.setAssignedTo(null);
                         caseReq.setDocumentVerificationDetails(decision.getDocumentValidationSummary());
                         caseReq.setSelfieDetails(decision.getSelfieValidationSummary());
+                        caseReq.setExternalKycDetails(decision.getExternalKycSummary());
 
                         Map<String, Object> kycDetailsMap = new LinkedHashMap<>();
                         kycDetailsMap.put("userId", caseReq.getUserId());

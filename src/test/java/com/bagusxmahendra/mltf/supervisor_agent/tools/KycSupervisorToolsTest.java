@@ -210,6 +210,7 @@ class KycSupervisorToolsTest {
         req.setUserId("usr_1002");
         req.setDocumentUrl("gs://bucket/id.jpg");
         req.setSelfieUrl("gs://bucket/selfie.jpg");
+        req.setExternalKycDetails(Map.of("status", "SUCCESS", "isIdentityVerified", true));
         req.setRiskScore(45.0);
         req.setRiskLevel("MEDIUM");
         req.setRemarks("Manual review needed");

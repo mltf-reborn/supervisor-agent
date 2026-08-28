@@ -49,6 +49,10 @@ public class CreateCaseRequest {
     @JsonAlias({"selfie_details", "selfieValidationDetails", "selfie_validation_details", "selfieValidationResult", "selfieResponse", "selfieValidation"})
     private Object selfieDetails;
 
+    @JsonProperty("externalKycDetails")
+    @JsonAlias({"external_kyc_details", "externalKyc", "external_kyc", "externalKycSummary", "external_kyc_summary", "externalKycResult"})
+    private Object externalKycDetails;
+
     @JsonProperty("riskScore")
     @JsonAlias({"risk_score", "score"})
     private Double riskScore;
@@ -154,6 +158,14 @@ public class CreateCaseRequest {
 
     public void setSelfieDetails(Object selfieDetails) {
         this.selfieDetails = selfieDetails;
+    }
+
+    public Object getExternalKycDetails() {
+        return externalKycDetails;
+    }
+
+    public void setExternalKycDetails(Object externalKycDetails) {
+        this.externalKycDetails = externalKycDetails;
     }
 
     public Double getRiskScore() {
