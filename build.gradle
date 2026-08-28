@@ -46,22 +46,17 @@ abstract class MinikubeDeployTask extends DefaultTask {
 	def deploy() {
 		def version = project.version.toString()
 
-		println ">>> [1/4] Building Docker image 'supervisor-agent:${version}' with VERSION=${version}..."
+		println ">>> [1/3] Building Docker image directly in Minikube's Docker daemon..."
 		execOperations.exec {
-			commandLine 'docker', 'build', '--build-arg', "VERSION=${version}", '-t', "supervisor-agent:${version}", '-t', 'supervisor-agent:latest', '.'
+			commandLine 'sh', '-c', "eval \"\$(minikube docker-env)\" && docker build --build-arg VERSION=${version} -t supervisor-agent:${version} -t supervisor-agent:latest ."
 		}
 
-		println ">>> [2/4] Loading Docker image into Minikube..."
-		execOperations.exec {
-			commandLine 'minikube', 'image', 'load', "supervisor-agent:${version}"
-		}
-
-		println ">>> [3/4] Applying Kubernetes manifests from k8s/..."
+		println ">>> [2/3] Applying Kubernetes manifests from k8s/..."
 		execOperations.exec {
 			commandLine 'kubectl', 'apply', '-k', 'k8s', '--server-side', '--force-conflicts'
 		}
 
-		println ">>> [4/4] Waiting for supervisor-agent deployment rollout..."
+		println ">>> [3/3] Waiting for supervisor-agent deployment rollout..."
 		execOperations.exec {
 			commandLine 'kubectl', 'rollout', 'status', 'deployment/supervisor-agent', '--timeout=180s'
 		}
@@ -100,7 +95,7 @@ abstract class MinikubeUndeployTask extends DefaultTask {
 
 tasks.register('minikubeDeploy', MinikubeDeployTask) {
 	group = 'deployment'
-	description = 'Builds the JAR, builds & loads Docker image into Minikube, applies k8s manifests, and waits for rollout.'
+	description = 'Builds the Docker image in Minikube, applies k8s manifests, and waits for rollout.'
 	dependsOn 'bootJar'
 }
 
