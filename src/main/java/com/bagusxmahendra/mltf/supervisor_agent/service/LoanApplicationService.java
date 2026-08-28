@@ -1,6 +1,8 @@
 package com.bagusxmahendra.mltf.supervisor_agent.service;
 
 import com.bagusxmahendra.mltf.supervisor_agent.dto.LoanApplicationResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationInquiryResponse;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationSummaryResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.LoanApplicationRepository;
@@ -11,7 +13,6 @@ import reactor.core.publisher.Mono;
 
 import java.util.UUID;
 import java.util.List;
-import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationSummaryResponse;
 
 @Service
 public class LoanApplicationService {
@@ -69,6 +70,21 @@ public class LoanApplicationService {
             return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
         }
         return loanApplicationRepository.findSummariesByUserId(userId.trim());
+    }
+
+    public Mono<ApplicationInquiryResponse> getApplicationInquiry(String applicationId, String userId) {
+        if (applicationId == null || applicationId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application ID is required"));
+        }
+        if (userId == null || userId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
+        }
+
+        return loanApplicationRepository.findInquiryByTransactionIdAndUserId(applicationId.trim(), userId.trim())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Application not found for customer"
+                )));
     }
 
     public Mono<Void> deleteApplication(String transactionId, String userId) {

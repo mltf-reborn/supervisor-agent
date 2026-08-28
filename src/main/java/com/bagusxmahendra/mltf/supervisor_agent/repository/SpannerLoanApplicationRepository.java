@@ -1,5 +1,7 @@
 package com.bagusxmahendra.mltf.supervisor_agent.repository;
 
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationDocumentItem;
+import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationInquiryResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationSummaryResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.google.cloud.spanner.DatabaseClient;
@@ -41,6 +43,22 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     @Override
+    public Mono<Boolean> existsByTransactionIdAndUserId(String transactionId, String userId) {
+        return Mono.fromCallable(() -> {
+            Statement statement = Statement.newBuilder(
+                            "SELECT transaction_id FROM application " +
+                                    "WHERE transaction_id = @transactionId AND user_id = @userId LIMIT 1")
+                    .bind("transactionId").to(transactionId)
+                    .bind("userId").to(userId)
+                    .build();
+
+            try (ResultSet resultSet = databaseClient.singleUse().executeQuery(statement)) {
+                return resultSet.next();
+            }
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
     public Mono<List<ApplicationSummaryResponse>> findSummariesByUserId(String userId) {
         return Mono.fromCallable(() -> {
             Statement statement = Statement.newBuilder(
@@ -61,6 +79,46 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             }
             return applications;
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<ApplicationInquiryResponse> findInquiryByTransactionIdAndUserId(String transactionId, String userId) {
+        return Mono.fromCallable(() -> {
+            Statement applicationStatement = Statement.newBuilder(
+                            "SELECT transaction_id, status FROM application " +
+                                    "WHERE transaction_id = @transactionId AND user_id = @userId")
+                    .bind("transactionId").to(transactionId)
+                    .bind("userId").to(userId)
+                    .build();
+
+            try (ResultSet appResultSet = databaseClient.singleUse().executeQuery(applicationStatement)) {
+                if (!appResultSet.next()) {
+                    return null;
+                }
+
+                String status = appResultSet.getCurrentRowAsStruct().getString("status");
+                Statement docsStatement = Statement.newBuilder(
+                                "SELECT document_id, document_filename, document_status, document_message " +
+                                        "FROM document WHERE transaction_id = @transactionId ORDER BY created_at ASC")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+
+                List<ApplicationDocumentItem> documents = new ArrayList<>();
+                try (ResultSet docResultSet = databaseClient.singleUse().executeQuery(docsStatement)) {
+                    while (docResultSet.next()) {
+                        com.google.cloud.spanner.Struct row = docResultSet.getCurrentRowAsStruct();
+                        documents.add(new ApplicationDocumentItem(
+                                row.getString("document_id"),
+                                row.isNull("document_filename") ? null : row.getString("document_filename"),
+                                row.isNull("document_status") ? null : row.getString("document_status"),
+                                row.isNull("document_message") ? null : row.getString("document_message")
+                        ));
+                    }
+                }
+
+                return new ApplicationInquiryResponse(transactionId, status, documents);
+            }
+        }).subscribeOn(Schedulers.boundedElastic()).flatMap(Mono::justOrEmpty);
     }
 
     @Override
