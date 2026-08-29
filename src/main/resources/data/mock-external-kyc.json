@@ -4,6 +4,7 @@
     "fullName": "BAGUS MAHENDRA WICAKSONO",
     "dateOfBirth": "1994-08-22",
     "nationality": "Malaysian",
+    "occupation": "Software Engineer",
     "status": "SUCCESS",
     "message": "External KYC database verification completed successfully.",
     "registryStatus": "ACTIVE",
@@ -22,6 +23,7 @@
     "fullName": "JOHN DOE",
     "dateOfBirth": "1988-05-12",
     "nationality": "American",
+    "occupation": "Manager",
     "status": "SUCCESS",
     "message": "External KYC database verification completed successfully.",
     "registryStatus": "ACTIVE",
@@ -32,7 +34,7 @@
     "creditScore": 810,
     "riskLevel": "LOW",
     "riskScore": 8.0,
-    "remarks": "National identity verified against central registry. Clear credit rating, no sanctions or adverse media found.",
+    "remarks": "National identity verified against central registry. Clean credit rating, no sanctions or adverse media found.",
     "flags": []
   },
   {
@@ -40,6 +42,7 @@
     "fullName": "ROBERT JOHNSON",
     "dateOfBirth": "1985-02-18",
     "nationality": "Malaysian",
+    "occupation": "Analyst",
     "status": "SUSPICIOUS",
     "message": "External KYC validation flagged potential risk: National registry blacklist match: High risk fraud flagged by financial intelligence unit.",
     "registryStatus": "FLAGGED",

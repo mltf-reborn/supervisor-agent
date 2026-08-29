@@ -241,6 +241,15 @@ public class KycSupervisorAgentService {
             String registryStatus = extractString(externalResult, "registryStatus", "ACTIVE");
             String externalRemarks = extractString(externalResult, "remarks", "");
             String externalMessage = extractString(externalResult, "message", "");
+            String externalOccupation = extractString(externalResult, "occupation", "Software Engineer");
+            String externalPhone = extractString(externalResult, "phoneNumber", null);
+            if (externalPhone == null) {
+                externalPhone = extractString(docResult, "phoneNumber", null);
+            }
+            BigDecimal externalIncome = extractBigDecimal(externalResult, "monthlyIncome", null);
+            if (externalIncome == null) {
+                externalIncome = extractBigDecimal(docResult, "monthlyIncome", null);
+            }
 
             // Step 4: Decision synthesis and explainability
             SupervisorKycDecision decision = new SupervisorKycDecision();
@@ -254,8 +263,9 @@ public class KycSupervisorAgentService {
             profile.setCity(extractedCity);
             profile.setPostalCode(extractedPostalCode);
             profile.setCountry(extractedCountry);
-            profile.setOccupation("Software Engineer");
-            profile.setMonthlyIncome(new BigDecimal("8500.00"));
+            profile.setOccupation(externalOccupation);
+            profile.setPhoneNumber(externalPhone);
+            profile.setMonthlyIncome(externalIncome);
             decision.setExtractedProfile(profile);
 
             decision.setDocumentValidationSummary(docResult);
@@ -542,5 +552,33 @@ public class KycSupervisorAgentService {
             }
         }
         return 96.5;
+    }
+
+    private BigDecimal extractBigDecimal(Map<String, Object> map, String key, BigDecimal fallback) {
+        if (map == null) return fallback;
+        Object val = null;
+        if (map.containsKey(key) && map.get(key) != null) {
+            val = map.get(key);
+        } else if (map.containsKey("extractedFields") && map.get("extractedFields") instanceof Map sub) {
+            if (sub.containsKey(key) && sub.get(key) != null) {
+                val = sub.get(key);
+            } else if (sub.containsKey("monthly_income") && sub.get("monthly_income") != null) {
+                val = sub.get("monthly_income");
+            } else if (sub.containsKey("income") && sub.get("income") != null) {
+                val = sub.get("income");
+            }
+        } else if (map.containsKey("monthly_income") && map.get("monthly_income") != null) {
+            val = map.get("monthly_income");
+        } else if (map.containsKey("income") && map.get("income") != null) {
+            val = map.get("income");
+        }
+
+        if (val == null) return fallback;
+        if (val instanceof BigDecimal bd) return bd;
+        if (val instanceof Number n) return new BigDecimal(n.toString());
+        try {
+            return new BigDecimal(val.toString());
+        } catch (Exception ignored) {}
+        return fallback;
     }
 }

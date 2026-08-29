@@ -33,6 +33,9 @@ public class ExternalKycResponse {
     @JsonProperty("nationality")
     private String nationality;
 
+    @JsonProperty("occupation")
+    private String occupation;
+
     @JsonProperty("registryStatus")
     @JsonAlias({"registry_status", "nationalIdStatus"})
     private String registryStatus; // "ACTIVE", "EXPIRED", "NOT_FOUND", "REVOKED"
@@ -84,6 +87,7 @@ public class ExternalKycResponse {
         res.setFullName(fullName);
         res.setDateOfBirth(dateOfBirth);
         res.setNationality(nationality != null ? nationality : "Malaysian");
+        res.setOccupation("Software Engineer");
         res.setRegistryStatus("ACTIVE");
         res.setIsIdentityVerified(true);
         res.setIsBlacklisted(false);
@@ -227,6 +231,14 @@ public class ExternalKycResponse {
 
     public void setNationality(String nationality) {
         this.nationality = nationality;
+    }
+
+    public String getOccupation() {
+        return occupation;
+    }
+
+    public void setOccupation(String occupation) {
+        this.occupation = occupation;
     }
 
     public String getRegistryStatus() {

@@ -166,6 +166,7 @@ public class ExternalKycClient {
         copy.setFullName(source.getFullName());
         copy.setDateOfBirth(source.getDateOfBirth());
         copy.setNationality(source.getNationality());
+        copy.setOccupation(source.getOccupation());
         copy.setRegistryStatus(source.getRegistryStatus());
         copy.setIsIdentityVerified(source.getIsIdentityVerified());
         copy.setIsBlacklisted(source.getIsBlacklisted());

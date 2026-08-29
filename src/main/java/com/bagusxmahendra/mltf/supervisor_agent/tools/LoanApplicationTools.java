@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -73,7 +74,45 @@ public class LoanApplicationTools {
     }
 
     /**
-     * Tool 2: Save Application details to application table.
+     * Tool 2: Check similarity between extracted document data and existing application records.
+     */
+    @Schema(
+            name = "checkDataSimilarity",
+            description = "Checks similarity between extracted document data and existing records in database tables (application, applicant, property) BEFORE saving. Returns similarity evaluation and detects conflicting information."
+    )
+    public Map<String, Object> checkDataSimilarity(
+            @Schema(name = "transactionId", description = "Transaction / Application ID (e.g. TXN-12345)") String transactionId,
+            @Schema(name = "applicantData", description = "Map of extracted applicant fields (full_name, id_no, etc.)") Map<String, Object> applicantData,
+            @Schema(name = "applicationData", description = "Map of extracted application fields (bank_selection, facility_type, etc.)") Map<String, Object> applicationData,
+            @Schema(name = "propertyData", description = "Map of extracted property fields (spa_price_rm, property_address, etc.)") Map<String, Object> propertyData
+    ) {
+        return checkDataSimilarity(transactionId, applicantData, applicationData, propertyData, null);
+    }
+
+    public Map<String, Object> checkDataSimilarity(
+            String transactionId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData,
+            List<String> ignoredFields
+    ) {
+        log.info("Executing LoanApplication Tool [checkDataSimilarity] for transactionId: {}, custom ignored fields: {}", transactionId, ignoredFields);
+        try {
+            return loanApplicationRepository.checkSimilarity(transactionId, applicantData, applicationData, propertyData, ignoredFields)
+                    .block(Duration.ofSeconds(10));
+        } catch (Exception e) {
+            log.error("Error executing LoanApplication tool checkDataSimilarity: {}", e.getMessage(), e);
+            Map<String, Object> errorMap = new LinkedHashMap<>();
+            errorMap.put("status", "FAILED");
+            errorMap.put("hasConflict", true);
+            errorMap.put("error", e.getMessage());
+            errorMap.put("message", e.getMessage());
+            return errorMap;
+        }
+    }
+
+    /**
+     * Tool 3: Save Application details to application table.
      */
     @Schema(
             name = "saveApplication",
@@ -133,7 +172,7 @@ public class LoanApplicationTools {
     )
     public Map<String, Object> saveApplicant(
             @Schema(name = "transactionId", description = "Transaction / Application ID (e.g. TXN-12345)") String transactionId,
-            @Schema(name = "applicantId", description = "Applicant ID / User ID (e.g. usr_1001)") String applicantId,
+            @Schema(name = "applicantId", description = "Applicant ID / User ID (MUST use the User ID provided in the user prompt)") String applicantId,
             @Schema(name = "role", description = "Role of applicant (e.g. Primary, Joint, Guarantor)") String role,
             @Schema(name = "fullName", description = "Full name as in identity document") String fullName,
             @Schema(name = "idType", description = "Identity card type (e.g. NRIC, PASSPORT, MYKAD)") String idType,

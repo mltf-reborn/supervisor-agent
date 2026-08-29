@@ -34,4 +34,19 @@ public interface LoanApplicationRepository {
     Mono<Void> saveApplicant(String transactionId, String applicantId, Map<String, Object> applicantData);
 
     Mono<Void> saveProperty(String transactionId, String propertyId, Map<String, Object> propertyData);
+
+    Mono<Map<String, Object>> checkSimilarity(
+            String transactionId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData
+    );
+
+    Mono<Map<String, Object>> checkSimilarity(
+            String transactionId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData,
+            List<String> ignoredFields
+    );
 }

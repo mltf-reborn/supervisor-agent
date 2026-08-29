@@ -1,5 +1,6 @@
 package com.bagusxmahendra.mltf.supervisor_agent.repository;
 
+import com.bagusxmahendra.mltf.supervisor_agent.config.SupervisorAgentProperties;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationDocumentItem;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationInquiryResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationSummaryResponse;
@@ -11,6 +12,7 @@ import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -19,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,9 +32,31 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     private static final Logger log = LoggerFactory.getLogger(SpannerLoanApplicationRepository.class);
 
     private final DatabaseClient databaseClient;
+    private final SupervisorAgentProperties properties;
+    private double similarityThreshold = 0.80;
+
+    @Autowired
+    public SpannerLoanApplicationRepository(
+            DatabaseClient databaseClient,
+            SupervisorAgentProperties properties
+    ) {
+        this.databaseClient = databaseClient;
+        this.properties = properties != null ? properties : new SupervisorAgentProperties();
+        if (this.properties.getSimilarityThreshold() > 0) {
+            this.similarityThreshold = this.properties.getSimilarityThreshold();
+        }
+    }
 
     public SpannerLoanApplicationRepository(DatabaseClient databaseClient) {
-        this.databaseClient = databaseClient;
+        this(databaseClient, null);
+    }
+
+    public double getSimilarityThreshold() {
+        return similarityThreshold;
+    }
+
+    public void setSimilarityThreshold(double similarityThreshold) {
+        this.similarityThreshold = similarityThreshold;
     }
 
     @Override
@@ -201,21 +226,31 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
             // 1. Applicant table update/insert
             if (applicantData != null && !applicantData.isEmpty()) {
-                String applicantId = extractString(applicantData, "applicant_id", "applicantId", userId);
+                String applicantId = extractString(applicantData, "applicant_id", "applicantId", "user_id", "userId");
                 if (applicantId == null || applicantId.isBlank()) {
                     applicantId = userId;
                 }
 
                 // Check if applicant record exists
                 Statement checkApplicant = Statement.newBuilder(
-                                "SELECT applicant_id FROM applicant WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
+                                "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
+                                "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
+                                "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
+                                "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
+                                "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
+                                "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
+                                "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                         .bind("transactionId").to(transactionId)
                         .bind("applicantId").to(applicantId)
                         .build();
 
                 boolean applicantExists = false;
                 try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApplicant)) {
-                    applicantExists = rs.next();
+                    if (rs.next()) {
+                        applicantExists = true;
+                        validateApplicantSimilarity(rs.getCurrentRowAsStruct(), applicantData);
+                    }
                 }
 
                 Mutation.WriteBuilder b = applicantExists
@@ -224,11 +259,14 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
                 b.set("transaction_id").to(transactionId);
                 b.set("applicant_id").to(applicantId);
-                if (!applicantExists) {
-                    b.set("role").to(extractString(applicantData, "role", "role", "Primary"));
+
+                String role = extractString(applicantData, "role");
+                if (role != null && !role.isBlank()) {
+                    b.set("role").to(role.trim());
+                } else if (!applicantExists) {
+                    b.set("role").to("Primary");
                 }
 
-                setIfPresent(b, "role", extractString(applicantData, "role"));
                 setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
                 setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
                 setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber"));
@@ -271,6 +309,18 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
             // 2. Application table update
             if (applicationData != null && !applicationData.isEmpty()) {
+                Statement checkApp = Statement.newBuilder(
+                                "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
+                                "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApp)) {
+                    if (rs.next()) {
+                        validateApplicationSimilarity(rs.getCurrentRowAsStruct(), applicationData);
+                    }
+                }
+
                 Mutation.WriteBuilder b = Mutation.newUpdateBuilder("application");
                 b.set("transaction_id").to(transactionId);
 
@@ -289,7 +339,6 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             if (propertyData != null && !propertyData.isEmpty()) {
                 String propertyId = extractString(propertyData, "property_id", "propertyId");
                 
-                // Check if property record exists for transaction_id if not explicitly provided
                 if (propertyId == null || propertyId.isBlank()) {
                     Statement checkProperty = Statement.newBuilder(
                                     "SELECT property_id FROM property WHERE transaction_id = @transactionId LIMIT 1")
@@ -306,12 +355,19 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 boolean propertyExists = false;
                 if (propertyId != null && !propertyId.isBlank()) {
                     Statement checkSpecificProperty = Statement.newBuilder(
-                                    "SELECT property_id FROM property WHERE transaction_id = @transactionId AND property_id = @propertyId")
+                                    "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
+                                    "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
+                                    "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
+                                    "is_owner_occupied, is_first_time_buyer FROM property " +
+                                    "WHERE transaction_id = @transactionId AND property_id = @propertyId")
                             .bind("transactionId").to(transactionId)
                             .bind("propertyId").to(propertyId)
                             .build();
                     try (ResultSet rs = databaseClient.singleUse().executeQuery(checkSpecificProperty)) {
-                        propertyExists = rs.next();
+                        if (rs.next()) {
+                            propertyExists = true;
+                            validatePropertySimilarity(rs.getCurrentRowAsStruct(), propertyData);
+                        }
                     }
                 }
 
@@ -364,8 +420,34 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             if (applicationData == null || applicationData.isEmpty()) {
                 return;
             }
-            Mutation.WriteBuilder b = Mutation.newUpdateBuilder("application");
+
+            Statement checkApp = Statement.newBuilder(
+                            "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
+                            "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId")
+                    .bind("transactionId").to(transactionId)
+                    .build();
+
+            boolean exists = false;
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApp)) {
+                if (rs.next()) {
+                    exists = true;
+                    validateApplicationSimilarity(rs.getCurrentRowAsStruct(), applicationData);
+                }
+            }
+
+            Mutation.WriteBuilder b = exists
+                    ? Mutation.newUpdateBuilder("application")
+                    : Mutation.newInsertBuilder("application");
+
             b.set("transaction_id").to(transactionId);
+            if (!exists) {
+                b.set("user_id").to(userId);
+                String appType = extractString(applicationData, "application_type", "applicationType");
+                b.set("application_type").to((appType != null && !appType.isBlank()) ? appType.trim() : "HOME_LOAN");
+                String status = extractString(applicationData, "status", "applicationStatus");
+                b.set("status").to((status != null && !status.isBlank()) ? status.trim() : "NEW");
+                b.set("created_at").to(Value.COMMIT_TIMESTAMP);
+            }
 
             setIfPresent(b, "bank_selection", extractString(applicationData, "bank_selection", "bankSelection", "bank"));
             setIfPresent(b, "application_type", extractString(applicationData, "application_type", "applicationType"));
@@ -417,14 +499,24 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             }
 
             Statement checkApplicant = Statement.newBuilder(
-                            "SELECT applicant_id FROM applicant WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
+                            "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
+                            "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
+                            "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
+                            "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
+                            "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
+                            "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
+                            "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                            "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                     .bind("transactionId").to(transactionId)
                     .bind("applicantId").to(resolvedApplicantId)
                     .build();
 
             boolean applicantExists = false;
             try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApplicant)) {
-                applicantExists = rs.next();
+                if (rs.next()) {
+                    applicantExists = true;
+                    validateApplicantSimilarity(rs.getCurrentRowAsStruct(), applicantData);
+                }
             }
 
             Mutation.WriteBuilder b = applicantExists
@@ -433,11 +525,14 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
             b.set("transaction_id").to(transactionId);
             b.set("applicant_id").to(resolvedApplicantId);
-            if (!applicantExists) {
-                b.set("role").to(extractString(applicantData, "role", "role", "Primary"));
+
+            String role = extractString(applicantData, "role");
+            if (role != null && !role.isBlank()) {
+                b.set("role").to(role.trim());
+            } else if (!applicantExists) {
+                b.set("role").to("Primary");
             }
 
-            setIfPresent(b, "role", extractString(applicantData, "role"));
             setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
             setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
             setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber"));
@@ -508,12 +603,19 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             boolean propertyExists = false;
             if (resolvedPropertyId != null && !resolvedPropertyId.isBlank()) {
                 Statement checkSpecific = Statement.newBuilder(
-                                "SELECT property_id FROM property WHERE transaction_id = @transactionId AND property_id = @propertyId")
+                                "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
+                                "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
+                                "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
+                                "is_owner_occupied, is_first_time_buyer FROM property " +
+                                "WHERE transaction_id = @transactionId AND property_id = @propertyId")
                         .bind("transactionId").to(transactionId)
                         .bind("propertyId").to(resolvedPropertyId)
                         .build();
                 try (ResultSet rs = databaseClient.singleUse().executeQuery(checkSpecific)) {
-                    propertyExists = rs.next();
+                    if (rs.next()) {
+                        propertyExists = true;
+                        validatePropertySimilarity(rs.getCurrentRowAsStruct(), propertyData);
+                    }
                 }
             }
 
@@ -552,6 +654,457 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             log.info("Executing database mutation to update 'property' table for transaction: {}, propertyId: {}", transactionId, resolvedPropertyId);
             databaseClient.write(List.of(b.build()));
         }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    private void validateApplicationSimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
+        if (!row.isNull("bank_selection")) validateSimilarity("application", "bank_selection", row.getString("bank_selection"), extractString(incoming, "bank_selection", "bankSelection", "bank"));
+        if (!row.isNull("application_type")) validateSimilarity("application", "application_type", row.getString("application_type"), extractString(incoming, "application_type", "applicationType"));
+        if (!row.isNull("status")) validateSimilarity("application", "status", row.getString("status"), extractString(incoming, "status", "applicationStatus"));
+        if (!row.isNull("facility_type")) validateSimilarity("application", "facility_type", row.getString("facility_type"), extractString(incoming, "facility_type", "facilityType"));
+        if (!row.isNull("facility_purpose")) validateSimilarity("application", "facility_purpose", row.getString("facility_purpose"), extractString(incoming, "facility_purpose", "facilityPurpose"));
+        if (!row.isNull("marketing_consent")) validateSimilarity("application", "marketing_consent", row.getString("marketing_consent"), extractString(incoming, "marketing_consent", "marketingConsent"));
+        if (!row.isNull("application_date")) validateSimilarity("application", "application_date", row.getDate("application_date").toString(), extractDate(incoming, "application_date", "applicationDate"));
+    }
+
+    private void validateApplicantSimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
+        if (!row.isNull("role")) validateSimilarity("applicant", "role", row.getString("role"), extractString(incoming, "role"));
+        if (!row.isNull("full_name")) validateSimilarity("applicant", "full_name", row.getString("full_name"), extractString(incoming, "full_name", "fullName", "name"));
+        if (!row.isNull("id_type")) validateSimilarity("applicant", "id_type", row.getString("id_type"), extractString(incoming, "id_type", "idType"));
+        if (!row.isNull("id_no")) validateSimilarity("applicant", "id_no", row.getString("id_no"), extractString(incoming, "id_no", "idNo", "idNumber"));
+        if (!row.isNull("nationality")) validateSimilarity("applicant", "nationality", row.getString("nationality"), extractString(incoming, "nationality"));
+        if (!row.isNull("race")) validateSimilarity("applicant", "race", row.getString("race"), extractString(incoming, "race"));
+        if (!row.isNull("bumiputera_status")) validateSimilarity("applicant", "bumiputera_status", row.getBoolean("bumiputera_status"), extractBoolean(incoming, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
+        if (!row.isNull("gender")) validateSimilarity("applicant", "gender", row.getString("gender"), extractString(incoming, "gender", "sex"));
+        if (!row.isNull("marital_status")) validateSimilarity("applicant", "marital_status", row.getString("marital_status"), extractString(incoming, "marital_status", "maritalStatus"));
+        if (!row.isNull("date_of_birth")) validateSimilarity("applicant", "date_of_birth", row.getDate("date_of_birth").toString(), extractDate(incoming, "date_of_birth", "dateOfBirth", "dob"));
+        if (!row.isNull("dependents_count")) validateSimilarity("applicant", "dependents_count", row.getLong("dependents_count"), extractLong(incoming, "dependents_count", "dependentsCount"));
+        if (!row.isNull("education_level")) validateSimilarity("applicant", "education_level", row.getString("education_level"), extractString(incoming, "education_level", "educationLevel"));
+        if (!row.isNull("mobile_phone")) validateSimilarity("applicant", "mobile_phone", row.getString("mobile_phone"), extractString(incoming, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"));
+        if (!row.isNull("residential_phone")) validateSimilarity("applicant", "residential_phone", row.getString("residential_phone"), extractString(incoming, "residential_phone", "residentialPhone"));
+        if (!row.isNull("email")) validateSimilarity("applicant", "email", row.getString("email"), extractString(incoming, "email"));
+        if (!row.isNull("perm_address")) validateSimilarity("applicant", "perm_address", row.getString("perm_address"), extractString(incoming, "perm_address", "permAddress", "address"));
+        if (!row.isNull("perm_postcode")) validateSimilarity("applicant", "perm_postcode", row.getString("perm_postcode"), extractString(incoming, "perm_postcode", "permPostcode", "postalCode", "postcode"));
+        if (!row.isNull("perm_city")) validateSimilarity("applicant", "perm_city", row.getString("perm_city"), extractString(incoming, "perm_city", "permCity", "city"));
+        if (!row.isNull("perm_state")) validateSimilarity("applicant", "perm_state", row.getString("perm_state"), extractString(incoming, "perm_state", "permState", "state"));
+        if (!row.isNull("mail_address")) validateSimilarity("applicant", "mail_address", row.getString("mail_address"), extractString(incoming, "mail_address", "mailAddress", "mailingAddress"));
+        if (!row.isNull("mail_postcode")) validateSimilarity("applicant", "mail_postcode", row.getString("mail_postcode"), extractString(incoming, "mail_postcode", "mailPostcode", "mailingPostcode"));
+        if (!row.isNull("employment_status")) validateSimilarity("applicant", "employment_status", row.getString("employment_status"), extractString(incoming, "employment_status", "employmentStatus"));
+        if (!row.isNull("employer_name")) validateSimilarity("applicant", "employer_name", row.getString("employer_name"), extractString(incoming, "employer_name", "employerName"));
+        if (!row.isNull("nature_of_business")) validateSimilarity("applicant", "nature_of_business", row.getString("nature_of_business"), extractString(incoming, "nature_of_business", "natureOfBusiness"));
+        if (!row.isNull("occupation")) validateSimilarity("applicant", "occupation", row.getString("occupation"), extractString(incoming, "occupation"));
+        if (!row.isNull("job_position")) validateSimilarity("applicant", "job_position", row.getString("job_position"), extractString(incoming, "job_position", "jobPosition", "position"));
+        if (!row.isNull("length_of_service_years")) validateSimilarity("applicant", "length_of_service_years", row.getBigDecimal("length_of_service_years"), extractBigDecimal(incoming, "length_of_service_years", "lengthOfServiceYears"));
+        if (!row.isNull("monthly_gross_rm")) validateSimilarity("applicant", "monthly_gross_rm", row.getBigDecimal("monthly_gross_rm"), extractBigDecimal(incoming, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"));
+        if (!row.isNull("annual_gross_rm")) validateSimilarity("applicant", "annual_gross_rm", row.getBigDecimal("annual_gross_rm"), extractBigDecimal(incoming, "annual_gross_rm", "annualGrossRm", "annualIncome"));
+        if (!row.isNull("emergency_name")) validateSimilarity("applicant", "emergency_name", row.getString("emergency_name"), extractString(incoming, "emergency_name", "emergencyName"));
+        if (!row.isNull("emergency_relationship")) validateSimilarity("applicant", "emergency_relationship", row.getString("emergency_relationship"), extractString(incoming, "emergency_relationship", "emergencyRelationship"));
+        if (!row.isNull("emergency_phone")) validateSimilarity("applicant", "emergency_phone", row.getString("emergency_phone"), extractString(incoming, "emergency_phone", "emergencyPhone"));
+        if (!row.isNull("spouse_full_name")) validateSimilarity("applicant", "spouse_full_name", row.getString("spouse_full_name"), extractString(incoming, "spouse_full_name", "spouseFullName", "spouseName"));
+        if (!row.isNull("spouse_id_no")) validateSimilarity("applicant", "spouse_id_no", row.getString("spouse_id_no"), extractString(incoming, "spouse_id_no", "spouseIdNo"));
+        if (!row.isNull("spouse_mobile")) validateSimilarity("applicant", "spouse_mobile", row.getString("spouse_mobile"), extractString(incoming, "spouse_mobile", "spouseMobile"));
+        if (!row.isNull("spouse_employer")) validateSimilarity("applicant", "spouse_employer", row.getString("spouse_employer"), extractString(incoming, "spouse_employer", "spouseEmployer"));
+        if (!row.isNull("spouse_monthly_gross_rm")) validateSimilarity("applicant", "spouse_monthly_gross_rm", row.getBigDecimal("spouse_monthly_gross_rm"), extractBigDecimal(incoming, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
+    }
+
+    private void validatePropertySimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
+        if (!row.isNull("property_type")) validateSimilarity("property", "property_type", row.getString("property_type"), extractString(incoming, "property_type", "propertyType"));
+        if (!row.isNull("property_status")) validateSimilarity("property", "property_status", row.getString("property_status"), extractString(incoming, "property_status", "propertyStatus"));
+        if (!row.isNull("developer_name")) validateSimilarity("property", "developer_name", row.getString("developer_name"), extractString(incoming, "developer_name", "developerName"));
+        if (!row.isNull("project_name")) validateSimilarity("property", "project_name", row.getString("project_name"), extractString(incoming, "project_name", "projectName"));
+        if (!row.isNull("contractor_name")) validateSimilarity("property", "contractor_name", row.getString("contractor_name"), extractString(incoming, "contractor_name", "contractorName"));
+        if (!row.isNull("spa_price_rm")) validateSimilarity("property", "spa_price_rm", row.getBigDecimal("spa_price_rm"), extractBigDecimal(incoming, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
+        if (!row.isNull("open_market_rm")) validateSimilarity("property", "open_market_rm", row.getBigDecimal("open_market_rm"), extractBigDecimal(incoming, "open_market_rm", "openMarketRm", "openMarketValue"));
+        if (!row.isNull("renovation_value_rm")) validateSimilarity("property", "renovation_value_rm", row.getBigDecimal("renovation_value_rm"), extractBigDecimal(incoming, "renovation_value_rm", "renovationValueRm"));
+        if (!row.isNull("property_address")) validateSimilarity("property", "property_address", row.getString("property_address"), extractString(incoming, "property_address", "propertyAddress", "address"));
+        if (!row.isNull("property_postcode")) validateSimilarity("property", "property_postcode", row.getString("property_postcode"), extractString(incoming, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
+        if (!row.isNull("property_city")) validateSimilarity("property", "property_city", row.getString("property_city"), extractString(incoming, "property_city", "propertyCity", "city"));
+        if (!row.isNull("property_state")) validateSimilarity("property", "property_state", row.getString("property_state"), extractString(incoming, "property_state", "propertyState", "state"));
+        if (!row.isNull("title_number")) validateSimilarity("property", "title_number", row.getString("title_number"), extractString(incoming, "title_number", "titleNumber"));
+        if (!row.isNull("title_type")) validateSimilarity("property", "title_type", row.getString("title_type"), extractString(incoming, "title_type", "titleType"));
+        if (!row.isNull("lot_number")) validateSimilarity("property", "lot_number", row.getString("lot_number"), extractString(incoming, "lot_number", "lotNumber"));
+        if (!row.isNull("mukim")) validateSimilarity("property", "mukim", row.getString("mukim"), extractString(incoming, "mukim"));
+        if (!row.isNull("district")) validateSimilarity("property", "district", row.getString("district"), extractString(incoming, "district"));
+        if (!row.isNull("is_owner_occupied")) validateSimilarity("property", "is_owner_occupied", row.getBoolean("is_owner_occupied"), extractBoolean(incoming, "is_owner_occupied", "isOwnerOccupied"));
+        if (!row.isNull("is_first_time_buyer")) validateSimilarity("property", "is_first_time_buyer", row.getBoolean("is_first_time_buyer"), extractBoolean(incoming, "is_first_time_buyer", "isFirstTimeBuyer"));
+    }
+
+    private void validateSimilarity(String table, String field, Object existingVal, Object incomingVal) {
+        if (this.properties.isFieldIgnored(field)) {
+            return;
+        }
+        if (existingVal == null || incomingVal == null) {
+            return;
+        }
+        String sExisting = existingVal.toString().trim();
+        String sIncoming = incomingVal.toString().trim();
+        if (sExisting.isEmpty() || sIncoming.isEmpty()) {
+            return;
+        }
+
+        double similarity = computeSimilarity(existingVal, incomingVal);
+        if (similarity < this.similarityThreshold) {
+            String errorMsg = String.format(
+                    "Conflicting data in document for %s field '%s': existing value '%s' vs incoming value '%s' (similarity %.1f%% is below threshold %.1f%%)",
+                    table, field, sExisting, sIncoming, similarity * 100.0, this.similarityThreshold * 100.0
+            );
+            log.warn(errorMsg);
+            throw new IllegalArgumentException(errorMsg);
+        }
+    }
+
+    @Override
+    public Mono<Map<String, Object>> checkSimilarity(
+            String transactionId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData
+    ) {
+        return checkSimilarity(transactionId, applicantData, applicationData, propertyData, null);
+    }
+
+    @Override
+    public Mono<Map<String, Object>> checkSimilarity(
+            String transactionId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData,
+            List<String> ignoredFields
+    ) {
+        return Mono.fromCallable(() -> {
+            List<Map<String, Object>> conflicts = new ArrayList<>();
+            List<Map<String, Object>> matches = new ArrayList<>();
+
+            // 1. Check Application table
+            if (applicationData != null && !applicationData.isEmpty()) {
+                Statement checkApp = Statement.newBuilder(
+                                "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
+                                "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApp)) {
+                    if (rs.next()) {
+                        com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                        if (!row.isNull("bank_selection")) checkFieldSimilarity("application", "bank_selection", row.getString("bank_selection"), extractString(applicationData, "bank_selection", "bankSelection", "bank"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("application_type")) checkFieldSimilarity("application", "application_type", row.getString("application_type"), extractString(applicationData, "application_type", "applicationType"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("status")) checkFieldSimilarity("application", "status", row.getString("status"), extractString(applicationData, "status", "applicationStatus"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("facility_type")) checkFieldSimilarity("application", "facility_type", row.getString("facility_type"), extractString(applicationData, "facility_type", "facilityType"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("facility_purpose")) checkFieldSimilarity("application", "facility_purpose", row.getString("facility_purpose"), extractString(applicationData, "facility_purpose", "facilityPurpose"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("marketing_consent")) checkFieldSimilarity("application", "marketing_consent", row.getString("marketing_consent"), extractString(applicationData, "marketing_consent", "marketingConsent"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("application_date")) checkFieldSimilarity("application", "application_date", row.getDate("application_date").toString(), extractDate(applicationData, "application_date", "applicationDate"), ignoredFields, conflicts, matches);
+                    }
+                }
+            }
+
+            // 2. Check Applicant table
+            if (applicantData != null && !applicantData.isEmpty()) {
+                String applicantId = extractString(applicantData, "applicant_id", "applicantId", "user_id", "userId");
+                Statement checkApplicant;
+                if (applicantId != null && !applicantId.isBlank()) {
+                    checkApplicant = Statement.newBuilder(
+                                    "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
+                                    "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
+                                    "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
+                                    "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
+                                    "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
+                                    "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
+                            .bind("transactionId").to(transactionId)
+                            .bind("applicantId").to(applicantId)
+                            .build();
+                } else {
+                    checkApplicant = Statement.newBuilder(
+                                    "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
+                                    "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
+                                    "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
+                                    "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
+                                    "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
+                                    "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "WHERE transaction_id = @transactionId LIMIT 1")
+                            .bind("transactionId").to(transactionId)
+                            .build();
+                }
+
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApplicant)) {
+                    if (rs.next()) {
+                        com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                        if (!row.isNull("role")) checkFieldSimilarity("applicant", "role", row.getString("role"), extractString(applicantData, "role"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("full_name")) checkFieldSimilarity("applicant", "full_name", row.getString("full_name"), extractString(applicantData, "full_name", "fullName", "name"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("id_type")) checkFieldSimilarity("applicant", "id_type", row.getString("id_type"), extractString(applicantData, "id_type", "idType"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("id_no")) checkFieldSimilarity("applicant", "id_no", row.getString("id_no"), extractString(applicantData, "id_no", "idNo", "idNumber"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("nationality")) checkFieldSimilarity("applicant", "nationality", row.getString("nationality"), extractString(applicantData, "nationality"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("race")) checkFieldSimilarity("applicant", "race", row.getString("race"), extractString(applicantData, "race"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("bumiputera_status")) checkFieldSimilarity("applicant", "bumiputera_status", row.getBoolean("bumiputera_status"), extractBoolean(applicantData, "bumiputera_status", "bumiputeraStatus", "isBumiputera"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("gender")) checkFieldSimilarity("applicant", "gender", row.getString("gender"), extractString(applicantData, "gender", "sex"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("marital_status")) checkFieldSimilarity("applicant", "marital_status", row.getString("marital_status"), extractString(applicantData, "marital_status", "maritalStatus"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("date_of_birth")) checkFieldSimilarity("applicant", "date_of_birth", row.getDate("date_of_birth").toString(), extractDate(applicantData, "date_of_birth", "dateOfBirth", "dob"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("dependents_count")) checkFieldSimilarity("applicant", "dependents_count", row.getLong("dependents_count"), extractLong(applicantData, "dependents_count", "dependentsCount"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("education_level")) checkFieldSimilarity("applicant", "education_level", row.getString("education_level"), extractString(applicantData, "education_level", "educationLevel"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("mobile_phone")) checkFieldSimilarity("applicant", "mobile_phone", row.getString("mobile_phone"), extractString(applicantData, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("residential_phone")) checkFieldSimilarity("applicant", "residential_phone", row.getString("residential_phone"), extractString(applicantData, "residential_phone", "residentialPhone"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("email")) checkFieldSimilarity("applicant", "email", row.getString("email"), extractString(applicantData, "email"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("perm_address")) checkFieldSimilarity("applicant", "perm_address", row.getString("perm_address"), extractString(applicantData, "perm_address", "permAddress", "address"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("perm_postcode")) checkFieldSimilarity("applicant", "perm_postcode", row.getString("perm_postcode"), extractString(applicantData, "perm_postcode", "permPostcode", "postalCode", "postcode"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("perm_city")) checkFieldSimilarity("applicant", "perm_city", row.getString("perm_city"), extractString(applicantData, "perm_city", "permCity", "city"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("perm_state")) checkFieldSimilarity("applicant", "perm_state", row.getString("perm_state"), extractString(applicantData, "perm_state", "permState", "state"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("mail_address")) checkFieldSimilarity("applicant", "mail_address", row.getString("mail_address"), extractString(applicantData, "mail_address", "mailAddress", "mailingAddress"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("mail_postcode")) checkFieldSimilarity("applicant", "mail_postcode", row.getString("mail_postcode"), extractString(applicantData, "mail_postcode", "mailPostcode", "mailingPostcode"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("employment_status")) checkFieldSimilarity("applicant", "employment_status", row.getString("employment_status"), extractString(applicantData, "employment_status", "employmentStatus"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("employer_name")) checkFieldSimilarity("applicant", "employer_name", row.getString("employer_name"), extractString(applicantData, "employer_name", "employerName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("nature_of_business")) checkFieldSimilarity("applicant", "nature_of_business", row.getString("nature_of_business"), extractString(applicantData, "nature_of_business", "natureOfBusiness"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("occupation")) checkFieldSimilarity("applicant", "occupation", row.getString("occupation"), extractString(applicantData, "occupation"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("job_position")) checkFieldSimilarity("applicant", "job_position", row.getString("job_position"), extractString(applicantData, "job_position", "jobPosition", "position"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("length_of_service_years")) checkFieldSimilarity("applicant", "length_of_service_years", row.getBigDecimal("length_of_service_years"), extractBigDecimal(applicantData, "length_of_service_years", "lengthOfServiceYears"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("monthly_gross_rm")) checkFieldSimilarity("applicant", "monthly_gross_rm", row.getBigDecimal("monthly_gross_rm"), extractBigDecimal(applicantData, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("annual_gross_rm")) checkFieldSimilarity("applicant", "annual_gross_rm", row.getBigDecimal("annual_gross_rm"), extractBigDecimal(applicantData, "annual_gross_rm", "annualGrossRm", "annualIncome"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("emergency_name")) checkFieldSimilarity("applicant", "emergency_name", row.getString("emergency_name"), extractString(applicantData, "emergency_name", "emergencyName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("emergency_relationship")) checkFieldSimilarity("applicant", "emergency_relationship", row.getString("emergency_relationship"), extractString(applicantData, "emergency_relationship", "emergencyRelationship"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("emergency_phone")) checkFieldSimilarity("applicant", "emergency_phone", row.getString("emergency_phone"), extractString(applicantData, "emergency_phone", "emergencyPhone"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spouse_full_name")) checkFieldSimilarity("applicant", "spouse_full_name", row.getString("spouse_full_name"), extractString(applicantData, "spouse_full_name", "spouseFullName", "spouseName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spouse_id_no")) checkFieldSimilarity("applicant", "spouse_id_no", row.getString("spouse_id_no"), extractString(applicantData, "spouse_id_no", "spouseIdNo"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spouse_mobile")) checkFieldSimilarity("applicant", "spouse_mobile", row.getString("spouse_mobile"), extractString(applicantData, "spouse_mobile", "spouseMobile"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spouse_employer")) checkFieldSimilarity("applicant", "spouse_employer", row.getString("spouse_employer"), extractString(applicantData, "spouse_employer", "spouseEmployer"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spouse_monthly_gross_rm")) checkFieldSimilarity("applicant", "spouse_monthly_gross_rm", row.getBigDecimal("spouse_monthly_gross_rm"), extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"), ignoredFields, conflicts, matches);
+                    }
+                }
+            }
+
+            // 3. Check Property table
+            if (propertyData != null && !propertyData.isEmpty()) {
+                String propertyId = extractString(propertyData, "property_id", "propertyId");
+                Statement checkProperty;
+                if (propertyId != null && !propertyId.isBlank()) {
+                    checkProperty = Statement.newBuilder(
+                                    "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
+                                    "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
+                                    "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
+                                    "is_owner_occupied, is_first_time_buyer FROM property " +
+                                    "WHERE transaction_id = @transactionId AND property_id = @propertyId")
+                            .bind("transactionId").to(transactionId)
+                            .bind("propertyId").to(propertyId)
+                            .build();
+                } else {
+                    checkProperty = Statement.newBuilder(
+                                    "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
+                                    "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
+                                    "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
+                                    "is_owner_occupied, is_first_time_buyer FROM property " +
+                                    "WHERE transaction_id = @transactionId LIMIT 1")
+                            .bind("transactionId").to(transactionId)
+                            .build();
+                }
+
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkProperty)) {
+                    if (rs.next()) {
+                        com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                        if (!row.isNull("property_type")) checkFieldSimilarity("property", "property_type", row.getString("property_type"), extractString(propertyData, "property_type", "propertyType"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("property_status")) checkFieldSimilarity("property", "property_status", row.getString("property_status"), extractString(propertyData, "property_status", "propertyStatus"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("developer_name")) checkFieldSimilarity("property", "developer_name", row.getString("developer_name"), extractString(propertyData, "developer_name", "developerName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("project_name")) checkFieldSimilarity("property", "project_name", row.getString("project_name"), extractString(propertyData, "project_name", "projectName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("contractor_name")) checkFieldSimilarity("property", "contractor_name", row.getString("contractor_name"), extractString(propertyData, "contractor_name", "contractorName"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("spa_price_rm")) checkFieldSimilarity("property", "spa_price_rm", row.getBigDecimal("spa_price_rm"), extractBigDecimal(propertyData, "spa_price_rm", "spaPriceRm", "spaPrice", "price"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("open_market_rm")) checkFieldSimilarity("property", "open_market_rm", row.getBigDecimal("open_market_rm"), extractBigDecimal(propertyData, "open_market_rm", "openMarketRm", "openMarketValue"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("renovation_value_rm")) checkFieldSimilarity("property", "renovation_value_rm", row.getBigDecimal("renovation_value_rm"), extractBigDecimal(propertyData, "renovation_value_rm", "renovationValueRm"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("property_address")) checkFieldSimilarity("property", "property_address", row.getString("property_address"), extractString(propertyData, "property_address", "propertyAddress", "address"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("property_postcode")) checkFieldSimilarity("property", "property_postcode", row.getString("property_postcode"), extractString(propertyData, "property_postcode", "propertyPostcode", "postcode", "postalCode"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("property_city")) checkFieldSimilarity("property", "property_city", row.getString("property_city"), extractString(propertyData, "property_city", "propertyCity", "city"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("property_state")) checkFieldSimilarity("property", "property_state", row.getString("property_state"), extractString(propertyData, "property_state", "propertyState", "state"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("title_number")) checkFieldSimilarity("property", "title_number", row.getString("title_number"), extractString(propertyData, "title_number", "titleNumber"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("title_type")) checkFieldSimilarity("property", "title_type", row.getString("title_type"), extractString(propertyData, "title_type", "titleType"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("lot_number")) checkFieldSimilarity("property", "lot_number", row.getString("lot_number"), extractString(propertyData, "lot_number", "lotNumber"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("mukim")) checkFieldSimilarity("property", "mukim", row.getString("mukim"), extractString(propertyData, "mukim"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("district")) checkFieldSimilarity("property", "district", row.getString("district"), extractString(propertyData, "district"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("is_owner_occupied")) checkFieldSimilarity("property", "is_owner_occupied", row.getBoolean("is_owner_occupied"), extractBoolean(propertyData, "is_owner_occupied", "isOwnerOccupied"), ignoredFields, conflicts, matches);
+                        if (!row.isNull("is_first_time_buyer")) checkFieldSimilarity("property", "is_first_time_buyer", row.getBoolean("is_first_time_buyer"), extractBoolean(propertyData, "is_first_time_buyer", "isFirstTimeBuyer"), ignoredFields, conflicts, matches);
+                    }
+                }
+            }
+
+            boolean hasConflict = !conflicts.isEmpty();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("status", hasConflict ? "CONFLICT_DETECTED" : "PASSED");
+            result.put("hasConflict", hasConflict);
+            result.put("thresholdPercent", this.similarityThreshold * 100.0);
+            result.put("conflictCount", conflicts.size());
+            result.put("conflicts", conflicts);
+            result.put("matches", matches);
+            if (hasConflict) {
+                result.put("message", conflicts.get(0).get("message").toString());
+            } else {
+                result.put("message", "Data similarity check passed: No conflicts detected");
+            }
+            return result;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void checkFieldSimilarity(
+            String table,
+            String field,
+            Object existingVal,
+            Object incomingVal,
+            List<String> customIgnored,
+            List<Map<String, Object>> conflicts,
+            List<Map<String, Object>> matches
+    ) {
+        if (this.properties.isFieldIgnored(field, customIgnored)) {
+            return;
+        }
+        if (existingVal == null || incomingVal == null) return;
+        String sExisting = existingVal.toString().trim();
+        String sIncoming = incomingVal.toString().trim();
+        if (sExisting.isEmpty() || sIncoming.isEmpty()) return;
+
+        double similarity = computeSimilarity(existingVal, incomingVal);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("table", table);
+        detail.put("field", field);
+        detail.put("existingValue", sExisting);
+        detail.put("incomingValue", sIncoming);
+        detail.put("similarityScorePercent", Math.round(similarity * 1000.0) / 10.0);
+
+        if (similarity < this.similarityThreshold) {
+            String msg = String.format(
+                    "Conflicting data for %s field '%s': existing value '%s' vs incoming value '%s' (similarity %.1f%% is below threshold %.1f%%)",
+                    table, field, sExisting, sIncoming, similarity * 100.0, this.similarityThreshold * 100.0
+            );
+            detail.put("message", msg);
+            conflicts.add(detail);
+        } else {
+            matches.add(detail);
+        }
+    }
+
+    private double computeSimilarity(Object existingVal, Object incomingVal) {
+        if (existingVal == null && incomingVal == null) return 1.0;
+        if (existingVal == null || incomingVal == null) return 0.0;
+
+        // Numeric comparison
+        if (existingVal instanceof Number || incomingVal instanceof Number
+                || (isNumeric(existingVal.toString()) && isNumeric(incomingVal.toString()))) {
+            try {
+                double v1 = Double.parseDouble(cleanNumeric(existingVal.toString()));
+                double v2 = Double.parseDouble(cleanNumeric(incomingVal.toString()));
+                if (v1 == v2) return 1.0;
+                double max = Math.max(Math.abs(v1), Math.abs(v2));
+                if (max == 0.0) return 1.0;
+                double diff = Math.abs(v1 - v2);
+                return Math.max(0.0, 1.0 - (diff / max));
+            } catch (Exception ignored) {}
+        }
+
+        // Boolean comparison
+        if (existingVal instanceof Boolean || incomingVal instanceof Boolean) {
+            boolean b1 = Boolean.parseBoolean(existingVal.toString().trim());
+            boolean b2 = Boolean.parseBoolean(incomingVal.toString().trim());
+            return b1 == b2 ? 1.0 : 0.0;
+        }
+
+        String s1 = existingVal.toString().trim();
+        String s2 = incomingVal.toString().trim();
+
+        if (s1.equalsIgnoreCase(s2)) return 1.0;
+
+        // Normalized alphanumeric comparison (ignoring case, hyphens, and whitespace)
+        String norm1 = s1.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+        String norm2 = s2.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+        if (!norm1.isEmpty() && norm1.equalsIgnoreCase(norm2)) {
+            return 1.0;
+        }
+
+        double levSim = computeLevenshteinSimilarity(s1.toLowerCase(), s2.toLowerCase());
+        double tokenSim = computeTokenSimilarity(s1, s2);
+        return Math.max(levSim, tokenSim);
+    }
+
+    private double computeTokenSimilarity(String s1, String s2) {
+        String[] tokens1 = s1.toLowerCase().replaceAll("[^a-z0-9\\s]", " ").trim().split("\\s+");
+        String[] tokens2 = s2.toLowerCase().replaceAll("[^a-z0-9\\s]", " ").trim().split("\\s+");
+        if (tokens1.length == 0 || tokens2.length == 0) return 0.0;
+
+        double matchScore = 0.0;
+        boolean[] used2 = new boolean[tokens2.length];
+
+        for (String t1 : tokens1) {
+            if (t1.isEmpty()) continue;
+            double bestTokenMatch = 0.0;
+            int bestIdx = -1;
+
+            for (int j = 0; j < tokens2.length; j++) {
+                if (used2[j]) continue;
+                String t2 = tokens2[j];
+                if (t2.isEmpty()) continue;
+
+                if (t1.equals(t2)) {
+                    bestTokenMatch = 1.0;
+                    bestIdx = j;
+                    break;
+                } else if ((t1.length() == 1 && t2.startsWith(t1)) || (t2.length() == 1 && t1.startsWith(t2))) {
+                    if (bestTokenMatch < 0.90) {
+                        bestTokenMatch = 0.90;
+                        bestIdx = j;
+                    }
+                } else {
+                    double lev = computeLevenshteinSimilarity(t1, t2);
+                    if (lev > 0.80 && lev > bestTokenMatch) {
+                        bestTokenMatch = lev;
+                        bestIdx = j;
+                    }
+                }
+            }
+
+            if (bestIdx != -1) {
+                used2[bestIdx] = true;
+                matchScore += bestTokenMatch;
+            }
+        }
+
+        int maxTokens = Math.max(tokens1.length, tokens2.length);
+        return matchScore / (double) maxTokens;
+    }
+
+    private double computeLevenshteinSimilarity(String s1, String s2) {
+        if (s1.equals(s2)) return 1.0;
+        int maxLen = Math.max(s1.length(), s2.length());
+        if (maxLen == 0) return 1.0;
+        int distance = levenshteinDistance(s1, s2);
+        return 1.0 - ((double) distance / maxLen);
+    }
+
+    private int levenshteinDistance(String s1, String s2) {
+        int[] prev = new int[s2.length() + 1];
+        int[] curr = new int[s2.length() + 1];
+
+        for (int j = 0; j <= s2.length(); j++) {
+            prev[j] = j;
+        }
+
+        for (int i = 1; i <= s1.length(); i++) {
+            curr[0] = i;
+            for (int j = 1; j <= s2.length(); j++) {
+                int cost = s1.charAt(i - 1) == s2.charAt(j - 1) ? 0 : 1;
+                curr[j] = Math.min(Math.min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            System.arraycopy(curr, 0, prev, 0, curr.length);
+        }
+        return prev[s2.length()];
+    }
+
+    private boolean isNumeric(String s) {
+        if (s == null || s.isBlank()) return false;
+        String clean = s.replaceAll("[^0-9.]", "").trim();
+        if (clean.isEmpty()) return false;
+        try {
+            Double.parseDouble(clean);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String cleanNumeric(String s) {
+        return s.replaceAll("[^0-9.]", "").trim();
     }
 
     private void setIfPresent(Mutation.WriteBuilder b, String column, String value) {

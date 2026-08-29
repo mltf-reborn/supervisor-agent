@@ -219,6 +219,7 @@ public class KycService {
                         String nationality = ext != null ? ext.getNationality() : null;
                         java.math.BigDecimal monthlyIncome = ext != null ? ext.getMonthlyIncome() : null;
                         String occupation = ext != null ? ext.getOccupation() : null;
+                        String phoneNumber = ext != null ? ext.getPhoneNumber() : null;
 
                         String remarks = decision.getRemarks() != null ? decision.getRemarks() : decision.getExplanation();
                         if (remarks == null || remarks.isBlank()) {
@@ -233,7 +234,7 @@ public class KycService {
                                 sanitizedUserId,
                                 effectiveFullName,
                                 sanitizedEmail,
-                                "88888",
+                                phoneNumber,
                                 idCardNumber,
                                 idCardType,
                                 dob,
@@ -299,8 +300,8 @@ public class KycService {
                 sanitizedUserId,
                 fullName,
                 sanitizedEmail,
-                "88888",
-                "88888",
+                null,
+                null,
                 null,
                 null,
                 null,

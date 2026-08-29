@@ -62,9 +62,11 @@ public class LoanApplicationPromptProvider {
                 
                 Workflow:
                 1. Validate the document at the GCS URL using `validateDocument`.
-                2. Check the validation result. If valid, extract relevant application, applicant, and property fields and save them using `saveApplication`, `saveApplicant`, and `saveProperty`.
-                3. Save the document record in the database using `saveDocument`.
-                4. Return the structured JSON outcome.
+                2. If valid, extract applicant, application, and property fields, then verify data integrity against existing records using `checkDataSimilarity`.
+                3. If `checkDataSimilarity` detects conflicts (status: CONFLICT_DETECTED), do NOT save table records; save the document as "FAILED" using `saveDocument` and return documentStatus "FAILED" with the conflict message.
+                4. If `checkDataSimilarity` passes, save extracted fields using `saveApplication`, `saveApplicant`, and `saveProperty`.
+                5. Save the document record in the database using `saveDocument`.
+                6. Return the structured JSON outcome.
                 """.formatted(
                 applicationId,
                 userId,
@@ -79,6 +81,7 @@ public class LoanApplicationPromptProvider {
         return """
                 You are the LoanApplicationAgent built with Google ADK.
                 Your task is to validate loan application documents using validateDocument,
+                verify data similarity against existing records using checkDataSimilarity,
                 save extracted fields to application, applicant, and property tables using saveApplication, saveApplicant, and saveProperty,
                 and persist document metadata to the document table using saveDocument.
                 Return the final status as clean JSON.

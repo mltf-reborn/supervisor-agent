@@ -3,6 +3,9 @@ package com.bagusxmahendra.mltf.supervisor_agent.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.HashSet;
+import java.util.Set;
+
 @Component
 @ConfigurationProperties(prefix = "google.gemini")
 public class SupervisorAgentProperties {
@@ -66,6 +69,29 @@ public class SupervisorAgentProperties {
      * Threshold below which KYC is automatically Rejected as fraud (default: 50.0%).
      */
     private double rejectionThreshold = 50.0;
+
+    /**
+     * Similarity threshold for checking existing vs incoming application/applicant/property data (default: 0.80 / 80%).
+     * If existing data similarity is >= threshold, data is updated; if < threshold, conflict error is thrown.
+     */
+    private double similarityThreshold = 0.80;
+
+    /**
+     * Set of field names to ignore during data similarity and conflict detection.
+     * Defaults to metadata, lifecycle statuses, timestamps, and primary/foreign keys.
+     */
+    private Set<String> similarityIgnoredFields = new HashSet<>(Set.of(
+            "status", "application_status", "document_status",
+            "application_date", "applicationdate",
+            "created_at", "createdat",
+            "updated_at", "updatedat",
+            "verified_at", "verifiedat",
+            "transaction_id", "transactionid",
+            "user_id", "userid",
+            "applicant_id", "applicantid",
+            "property_id", "propertyid",
+            "document_id", "documentid"
+    ));
 
     public String getApiKey() {
         return apiKey;
@@ -161,5 +187,51 @@ public class SupervisorAgentProperties {
 
     public void setRejectionThreshold(double rejectionThreshold) {
         this.rejectionThreshold = rejectionThreshold;
+    }
+
+    public double getSimilarityThreshold() {
+        return similarityThreshold;
+    }
+
+    public void setSimilarityThreshold(double similarityThreshold) {
+        this.similarityThreshold = similarityThreshold;
+    }
+
+    public Set<String> getSimilarityIgnoredFields() {
+        return similarityIgnoredFields;
+    }
+
+    public void setSimilarityIgnoredFields(Set<String> similarityIgnoredFields) {
+        this.similarityIgnoredFields = similarityIgnoredFields;
+    }
+
+    /**
+     * Centralized check to determine if a field should be ignored during conflict detection.
+     * Matches case-insensitively and ignores underscores/hyphens (e.g. application_date == applicationDate).
+     */
+    public boolean isFieldIgnored(String fieldName, java.util.Collection<String> customIgnored) {
+        if (fieldName == null || fieldName.isBlank()) {
+            return true;
+        }
+        String normalized = fieldName.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+        if (customIgnored != null) {
+            for (String f : customIgnored) {
+                if (f != null && f.replaceAll("[^a-zA-Z0-9]", "").equalsIgnoreCase(normalized)) {
+                    return true;
+                }
+            }
+        }
+        if (similarityIgnoredFields != null) {
+            for (String f : similarityIgnoredFields) {
+                if (f != null && f.replaceAll("[^a-zA-Z0-9]", "").equalsIgnoreCase(normalized)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean isFieldIgnored(String fieldName) {
+        return isFieldIgnored(fieldName, null);
     }
 }

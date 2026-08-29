@@ -6,38 +6,29 @@ When an application document is uploaded (with applicationId, userId, documentId
 1. Execute the document validation tool `validateDocument(gcsUrl, mimeType, customPrompt)`.
 2. Inspect the validation result:
    - Check if the document is valid (status is "SUCCESS" or confidence/authenticity is sufficient without tampering).
-   - If the document is valid, extract all available fields and invoke the dedicated persistence tools according to the target database table:
+   - If the document is valid, extract all available fields into `applicant`, `application`, and `property` categories.
 
+3. **Check Data Similarity BEFORE Saving**:
+   - Execute `checkDataSimilarity(transactionId, applicantData, applicationData, propertyData)`.
+   - If `checkDataSimilarity` returns `status: "CONFLICT_DETECTED"` or `hasConflict: true`:
+     - **DO NOT** call `saveApplication`, `saveApplicant`, or `saveProperty`.
+     - Save the document status as `"FAILED"` via `saveDocument(applicationId, documentId, filename, gcsUrl, contentType, "FAILED", conflictMessage, processingDetails)`.
+     - Return final JSON with `"documentStatus": "FAILED"` and `"documentMessage": "<Exact conflict message>"`.
+   - If `checkDataSimilarity` returns `status: "PASSED"` or `hasConflict: false`:
+     - Proceed to step 4 to save the extracted data.
+
+4. **Persist Extracted Fields**:
    a. **Save Application Details** via `saveApplication`:
-      Call `saveApplication(transactionId, userId, bankSelection, applicationType, status, facilityType, facilityPurpose, marketingConsent, applicationDate)` to save/update the `application` table:
-      - `transaction_id`: Unique loan application transaction ID (applicationId)
-      - `user_id`: Customer / applicant ID (userId)
-      - `bank_selection`: Selected bank name
-      - `application_type`: Loan application type (e.g. HOME_LOAN, REFINANCING)
-      - `status`: Application status (e.g. NEW, SUBMITTED, PENDING_APPROVAL, APPROVED, REJECTED)
-      - `facility_type`: Facility type (e.g. Conventional, Islamic)
-      - `facility_purpose`: Financing purpose (e.g. Purchase completed residential property, Refinancing)
-      - `marketing_consent`: Marketing consent opt-in (YES / NO)
-      - `application_date`: Application submission date (YYYY-MM-DD)
+      Call `saveApplication(transactionId, userId, bankSelection, applicationType, status, facilityType, facilityPurpose, marketingConsent, applicationDate)` to save/update the `application` table.
 
    b. **Save Applicant Details** via `saveApplicant`:
-      Call `saveApplicant(transactionId, applicantId, role, fullName, idType, idNo, nationality, race, bumiputeraStatus, gender, maritalStatus, dateOfBirth, dependentsCount, educationLevel, mobilePhone, residentialPhone, email, permAddress, permPostcode, permCity, permState, mailAddress, mailPostcode, employmentStatus, employerName, natureOfBusiness, occupation, jobPosition, lengthOfServiceYears, monthlyGrossRm, annualGrossRm, emergencyName, emergencyRelationship, emergencyPhone, spouseFullName, spouseIdNo, spouseMobile, spouseEmployer, spouseMonthlyGrossRm)` to save/update the `applicant` table:
-      - Personal & ID: `full_name`, `id_type`, `id_no`, `nationality`, `race`, `bumiputera_status`, `gender`, `marital_status`, `date_of_birth`, `dependents_count`, `education_level`
-      - Contact: `mobile_phone`, `residential_phone`, `email`
-      - Address: `perm_address`, `perm_postcode`, `perm_city`, `perm_state`, `mail_address`, `mail_postcode`
-      - Employment & Income: `employment_status`, `employer_name`, `nature_of_business`, `occupation`, `job_position`, `length_of_service_years`, `monthly_gross_rm`, `annual_gross_rm`
-      - Emergency Contact: `emergency_name`, `emergency_relationship`, `emergency_phone`
-      - Spouse Details: `spouse_full_name`, `spouse_id_no`, `spouse_mobile`, `spouse_employer`, `spouse_monthly_gross_rm`
+      Call `saveApplicant(transactionId, applicantId, role, fullName, idType, idNo, nationality, race, bumiputeraStatus, gender, maritalStatus, dateOfBirth, dependentsCount, educationLevel, mobilePhone, residentialPhone, email, permAddress, permPostcode, permCity, permState, mailAddress, mailPostcode, employmentStatus, employerName, natureOfBusiness, occupation, jobPosition, lengthOfServiceYears, monthlyGrossRm, annualGrossRm, emergencyName, emergencyRelationship, emergencyPhone, spouseFullName, spouseIdNo, spouseMobile, spouseEmployer, spouseMonthlyGrossRm)` to save/update the `applicant` table. Note: `applicantId` MUST be the exact User ID provided in the user prompt (which comes from the user's JWT).
 
    c. **Save Property Details** via `saveProperty`:
-      Call `saveProperty(transactionId, propertyId, propertyType, propertyStatus, developerName, projectName, contractorName, spaPriceRm, openMarketRm, renovationValueRm, propertyAddress, propertyPostcode, propertyCity, propertyState, titleNumber, titleType, lotNumber, mukim, district, isOwnerOccupied, isFirstTimeBuyer)` to save/update the `property` table:
-      - Property Info: `property_type`, `property_status`, `developer_name`, `project_name`, `contractor_name`
-      - Valuation: `spa_price_rm`, `open_market_rm`, `renovation_value_rm`
-      - Location: `property_address`, `property_postcode`, `property_city`, `property_state`, `mukim`, `district`
-      - Title & Buyer Details: `title_number`, `title_type`, `lot_number`, `is_owner_occupied`, `is_first_time_buyer`
+      Call `saveProperty(transactionId, propertyId, propertyType, propertyStatus, developerName, projectName, contractorName, spaPriceRm, openMarketRm, renovationValueRm, propertyAddress, propertyPostcode, propertyCity, propertyState, titleNumber, titleType, lotNumber, mukim, district, isOwnerOccupied, isFirstTimeBuyer)` to save/update the `property` table.
 
-3. Save the document entry into the database table `document` by calling the tool `saveDocument(applicationId, documentId, filename, gcsUrl, contentType, status, message, processingDetails)`.
-4. Synthesize the final outcome and return a clean JSON response containing:
+5. Save the document entry into the database table `document` by calling the tool `saveDocument(applicationId, documentId, filename, gcsUrl, contentType, status, message, processingDetails)`.
+6. Synthesize the final outcome and return a clean JSON response containing:
    - documentFilename
    - documentId
    - documentStatus ("SUCCESS", "FAILED", or "IN_REVIEW")

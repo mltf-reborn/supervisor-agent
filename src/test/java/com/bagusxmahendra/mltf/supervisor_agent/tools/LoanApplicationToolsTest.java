@@ -119,6 +119,42 @@ class LoanApplicationToolsTest {
     }
 
     @Test
+    void saveApplicant_whenConflictOccurs_shouldReturnFailedWithErrorMessage() {
+        when(loanApplicationRepository.saveApplicant(eq("TXN-1"), eq("usr_1"), any()))
+                .thenReturn(Mono.error(new IllegalArgumentException("Conflicting data in document for applicant field 'full_name': existing value 'John Doe' vs incoming value 'Alice Smith' (similarity 18.2% is below threshold 80.0%)")));
+
+        Map<String, Object> result = tools.saveApplicant(
+                "TXN-1", "usr_1", "Primary", "Alice Smith", null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null
+        );
+
+        assertNotNull(result);
+        assertEquals("FAILED", result.get("status"));
+        org.junit.jupiter.api.Assertions.assertTrue(result.get("error").toString().contains("Conflicting data in document"));
+    }
+
+    @Test
+    void checkDataSimilarity_shouldCallRepository() {
+        when(loanApplicationRepository.checkSimilarity(eq("TXN-1"), any(), any(), any(), any()))
+                .thenReturn(Mono.just(Map.of("status", "PASSED", "hasConflict", false)));
+
+        Map<String, Object> result = tools.checkDataSimilarity(
+                "TXN-1",
+                Map.of("full_name", "Bagus M Wicaksono"),
+                Map.of(),
+                Map.of()
+        );
+
+        assertNotNull(result);
+        assertEquals("PASSED", result.get("status"));
+        assertEquals(false, result.get("hasConflict"));
+        verify(loanApplicationRepository).checkSimilarity(eq("TXN-1"), any(), any(), any(), any());
+    }
+
+    @Test
     void saveDocument_shouldCallRepository() {
         when(applicationDocumentRepository.save(
                 eq("TXN-1"), eq("DOC-1"), eq("file.pdf"), eq("gs://bucket/doc.pdf"),

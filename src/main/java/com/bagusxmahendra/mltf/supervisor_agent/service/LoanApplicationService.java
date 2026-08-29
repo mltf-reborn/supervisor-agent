@@ -17,7 +17,7 @@ import java.util.List;
 @Service
 public class LoanApplicationService {
 
-    private static final String MORTGAGE_LOAN = "MORTGAGE_LOAN";
+    private static final String MORTGAGE_LOAN = "Single Application";
 
     private final KycRepository kycRepository;
     private final LoanApplicationRepository loanApplicationRepository;

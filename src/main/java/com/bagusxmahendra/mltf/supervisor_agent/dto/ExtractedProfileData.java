@@ -49,6 +49,10 @@ public class ExtractedProfileData {
     @JsonProperty("occupation")
     private String occupation;
 
+    @JsonProperty("phoneNumber")
+    @JsonAlias({"phone_number", "phone", "mobile", "mobileNumber", "mobile_number"})
+    private String phoneNumber;
+
     @JsonProperty("monthlyIncome")
     @JsonAlias({"monthly_income", "income"})
     private BigDecimal monthlyIncome;
@@ -134,6 +138,14 @@ public class ExtractedProfileData {
 
     public void setOccupation(String occupation) {
         this.occupation = occupation;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
     }
 
     public BigDecimal getMonthlyIncome() {
