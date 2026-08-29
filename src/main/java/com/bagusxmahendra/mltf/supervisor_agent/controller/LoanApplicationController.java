@@ -132,13 +132,37 @@ public class LoanApplicationController {
         return inquiryWithAction("edit", applicationId, authHeader);
     }
 
-    @org.springframework.web.bind.annotation.GetMapping(params = "action=edit")
+    @org.springframework.web.bind.annotation.GetMapping("/status")
+    public Mono<ApplicationInquiryResponse> getApplicationStatus(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
+    ) {
+        return inquiryWithAction("status", applicationId, authHeader);
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/documents")
+    public Mono<ApplicationInquiryResponse> getApplicationDocuments(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
+    ) {
+        return inquiryWithAction("documents", applicationId, authHeader);
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/document/status")
+    public Mono<ApplicationInquiryResponse> getDocumentStatus(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
+    ) {
+        return inquiryWithAction("document_status", applicationId, authHeader);
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping(params = "action")
     public Mono<ApplicationInquiryResponse> inquiryByAction(
             @RequestParam String action,
             @RequestParam("applicationID") String applicationId,
             @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
     ) {
-        if (!"edit".equalsIgnoreCase(action)) {
+        if (!"edit".equalsIgnoreCase(action) && !"status".equalsIgnoreCase(action) && !"inquiry".equalsIgnoreCase(action)) {
             return Mono.error(new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Unsupported action: " + action

@@ -1,13 +1,8 @@
 package com.bagusxmahendra.mltf.supervisor_agent.service;
 
-import com.bagusxmahendra.mltf.supervisor_agent.client.DocumentProcessingClient;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationDocumentResponse;
-import com.bagusxmahendra.mltf.supervisor_agent.dto.DocProcessingResponseDto;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.FileUploadResult;
-import com.bagusxmahendra.mltf.supervisor_agent.repository.ApplicationDocumentRepository;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.LoanApplicationRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
@@ -20,21 +15,17 @@ import java.util.UUID;
 public class ApplicationDocumentService {
 
     private final LoanApplicationRepository loanApplicationRepository;
-    private final ApplicationDocumentRepository documentRepository;
     private final StorageService storageService;
-    private final DocumentProcessingClient documentProcessingClient;
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final LoanApplicationAgentService loanApplicationAgentService;
 
     public ApplicationDocumentService(
             LoanApplicationRepository loanApplicationRepository,
-            ApplicationDocumentRepository documentRepository,
             StorageService storageService,
-            DocumentProcessingClient documentProcessingClient
+            LoanApplicationAgentService loanApplicationAgentService
     ) {
         this.loanApplicationRepository = loanApplicationRepository;
-        this.documentRepository = documentRepository;
         this.storageService = storageService;
-        this.documentProcessingClient = documentProcessingClient;
+        this.loanApplicationAgentService = loanApplicationAgentService;
     }
 
     public Mono<ApplicationDocumentResponse> uploadAndProcess(
@@ -64,45 +55,17 @@ public class ApplicationDocumentService {
                     }
 
                     String documentId = "DOC-" + UUID.randomUUID();
+                    // 1. Upload the document to GCS
                     return storageService.uploadFile(document, sanitizedApplicationId, "document")
-                            .flatMap(upload -> processAndSave(
-                                    sanitizedApplicationId, documentId, upload));
+                            // 2. Handoff the process to the LoanApplicationAgent LLM Model
+                            .flatMap(upload -> loanApplicationAgentService.processDocument(
+                                    sanitizedApplicationId,
+                                    sanitizedUserId,
+                                    documentId,
+                                    upload.filename(),
+                                    upload.fileUrl(),
+                                    upload.contentType()
+                            ));
                 });
-    }
-
-    private Mono<ApplicationDocumentResponse> processAndSave(
-            String applicationId,
-            String documentId,
-            FileUploadResult upload
-    ) {
-        return documentProcessingClient.processDocument(upload.fileUrl(), upload.contentType(), null)
-                .flatMap(processingResult -> serialize(processingResult)
-                        .flatMap(processingDetails -> documentRepository.save(
-                                applicationId,
-                                documentId,
-                                upload.filename(),
-                                upload.fileUrl(),
-                                upload.contentType(),
-                                processingResult.getStatus(),
-                                processingResult.getMessage(),
-                                processingDetails
-                        ).thenReturn(new ApplicationDocumentResponse(
-                                upload.filename(),
-                                documentId,
-                                processingResult.getStatus(),
-                                processingResult.getMessage()
-                        ))));
-    }
-
-    private Mono<String> serialize(DocProcessingResponseDto response) {
-        try {
-            return Mono.just(objectMapper.writeValueAsString(response));
-        } catch (JsonProcessingException ex) {
-            return Mono.error(new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Unable to store document processing details",
-                    ex
-            ));
-        }
     }
 }

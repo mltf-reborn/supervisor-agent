@@ -4,6 +4,7 @@ import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationInquiryResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationSummaryResponse;
 import java.util.List;
+import java.util.Map;
 import reactor.core.publisher.Mono;
 
 public interface LoanApplicationRepository {
@@ -19,4 +20,12 @@ public interface LoanApplicationRepository {
     Mono<Void> create(String transactionId, String userId, String applicationType, KycProfile kycProfile);
 
     Mono<Boolean> deleteByTransactionIdAndUserId(String transactionId, String userId);
+
+    Mono<Void> updateApplicationData(
+            String transactionId,
+            String userId,
+            Map<String, Object> applicantData,
+            Map<String, Object> applicationData,
+            Map<String, Object> propertyData
+    );
 }
