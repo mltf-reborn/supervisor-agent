@@ -19,6 +19,8 @@ public interface LoanApplicationRepository {
 
     Mono<Void> create(String transactionId, String userId, String applicationType, KycProfile kycProfile);
 
+    Mono<Map<String, Object>> getApplicationDetails(String transactionId, String userId);
+
     Mono<Boolean> deleteByTransactionIdAndUserId(String transactionId, String userId);
 
     Mono<Void> updateApplicationData(

@@ -155,6 +155,133 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     @Override
+    public Mono<Map<String, Object>> getApplicationDetails(String transactionId, String userId) {
+        return Mono.fromCallable(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+
+            // 1. Get Application
+            Statement appStatement = Statement.newBuilder(
+                    "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
+                    "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId AND user_id = @userId")
+                    .bind("transactionId").to(transactionId)
+                    .bind("userId").to(userId)
+                    .build();
+
+            Map<String, Object> appData = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(appStatement)) {
+                if (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    appData.put("bank_selection", row.isNull("bank_selection") ? "" : row.getString("bank_selection"));
+                    appData.put("application_type", row.isNull("application_type") ? "" : row.getString("application_type"));
+                    appData.put("status", row.isNull("status") ? "" : row.getString("status"));
+                    appData.put("facility_type", row.isNull("facility_type") ? "" : row.getString("facility_type"));
+                    appData.put("facility_purpose", row.isNull("facility_purpose") ? "" : row.getString("facility_purpose"));
+                    appData.put("marketing_consent", row.isNull("marketing_consent") ? "" : row.getString("marketing_consent"));
+                    appData.put("application_date", row.isNull("application_date") ? "" : row.getDate("application_date").toString());
+                } else {
+                    return null; // Not found or not authorized
+                }
+            }
+            result.put("application", appData);
+
+            // 2. Get Applicant
+            Statement applicantStatement = Statement.newBuilder(
+                    "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
+                    "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
+                    "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
+                    "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
+                    "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
+                    "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
+                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant WHERE transaction_id = @transactionId")
+                    .bind("transactionId").to(transactionId)
+                    .build();
+
+            Map<String, Object> applicantData = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(applicantStatement)) {
+                if (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    applicantData.put("role", row.isNull("role") ? "" : row.getString("role"));
+                    applicantData.put("full_name", row.isNull("full_name") ? "" : row.getString("full_name"));
+                    applicantData.put("id_type", row.isNull("id_type") ? "" : row.getString("id_type"));
+                    applicantData.put("id_no", row.isNull("id_no") ? "" : row.getString("id_no"));
+                    applicantData.put("nationality", row.isNull("nationality") ? "" : row.getString("nationality"));
+                    applicantData.put("race", row.isNull("race") ? "" : row.getString("race"));
+                    applicantData.put("bumiputera_status", row.isNull("bumiputera_status") ? null : row.getBoolean("bumiputera_status"));
+                    applicantData.put("gender", row.isNull("gender") ? "" : row.getString("gender"));
+                    applicantData.put("marital_status", row.isNull("marital_status") ? "" : row.getString("marital_status"));
+                    applicantData.put("date_of_birth", row.isNull("date_of_birth") ? "" : row.getDate("date_of_birth").toString());
+                    applicantData.put("dependents_count", row.isNull("dependents_count") ? null : row.getLong("dependents_count"));
+                    applicantData.put("education_level", row.isNull("education_level") ? "" : row.getString("education_level"));
+                    applicantData.put("mobile_phone", row.isNull("mobile_phone") ? "" : row.getString("mobile_phone"));
+                    applicantData.put("residential_phone", row.isNull("residential_phone") ? "" : row.getString("residential_phone"));
+                    applicantData.put("email", row.isNull("email") ? "" : row.getString("email"));
+                    applicantData.put("perm_address", row.isNull("perm_address") ? "" : row.getString("perm_address"));
+                    applicantData.put("perm_postcode", row.isNull("perm_postcode") ? "" : row.getString("perm_postcode"));
+                    applicantData.put("perm_city", row.isNull("perm_city") ? "" : row.getString("perm_city"));
+                    applicantData.put("perm_state", row.isNull("perm_state") ? "" : row.getString("perm_state"));
+                    applicantData.put("mail_address", row.isNull("mail_address") ? "" : row.getString("mail_address"));
+                    applicantData.put("mail_postcode", row.isNull("mail_postcode") ? "" : row.getString("mail_postcode"));
+                    applicantData.put("employment_status", row.isNull("employment_status") ? "" : row.getString("employment_status"));
+                    applicantData.put("employer_name", row.isNull("employer_name") ? "" : row.getString("employer_name"));
+                    applicantData.put("nature_of_business", row.isNull("nature_of_business") ? "" : row.getString("nature_of_business"));
+                    applicantData.put("occupation", row.isNull("occupation") ? "" : row.getString("occupation"));
+                    applicantData.put("job_position", row.isNull("job_position") ? "" : row.getString("job_position"));
+                    applicantData.put("length_of_service_years", row.isNull("length_of_service_years") ? null : row.getBigDecimal("length_of_service_years"));
+                    applicantData.put("monthly_gross_rm", row.isNull("monthly_gross_rm") ? null : row.getBigDecimal("monthly_gross_rm"));
+                    applicantData.put("annual_gross_rm", row.isNull("annual_gross_rm") ? null : row.getBigDecimal("annual_gross_rm"));
+                    applicantData.put("emergency_name", row.isNull("emergency_name") ? "" : row.getString("emergency_name"));
+                    applicantData.put("emergency_relationship", row.isNull("emergency_relationship") ? "" : row.getString("emergency_relationship"));
+                    applicantData.put("emergency_phone", row.isNull("emergency_phone") ? "" : row.getString("emergency_phone"));
+                    applicantData.put("spouse_full_name", row.isNull("spouse_full_name") ? "" : row.getString("spouse_full_name"));
+                    applicantData.put("spouse_id_no", row.isNull("spouse_id_no") ? "" : row.getString("spouse_id_no"));
+                    applicantData.put("spouse_mobile", row.isNull("spouse_mobile") ? "" : row.getString("spouse_mobile"));
+                    applicantData.put("spouse_employer", row.isNull("spouse_employer") ? "" : row.getString("spouse_employer"));
+                    applicantData.put("spouse_monthly_gross_rm", row.isNull("spouse_monthly_gross_rm") ? null : row.getBigDecimal("spouse_monthly_gross_rm"));
+                }
+            }
+            result.put("applicant", applicantData);
+
+            // 3. Get Property
+            Statement propertyStatement = Statement.newBuilder(
+                    "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
+                    "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
+                    "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
+                    "is_owner_occupied, is_first_time_buyer FROM property WHERE transaction_id = @transactionId")
+                    .bind("transactionId").to(transactionId)
+                    .build();
+
+            Map<String, Object> propertyData = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(propertyStatement)) {
+                if (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    propertyData.put("property_type", row.isNull("property_type") ? "" : row.getString("property_type"));
+                    propertyData.put("property_status", row.isNull("property_status") ? "" : row.getString("property_status"));
+                    propertyData.put("developer_name", row.isNull("developer_name") ? "" : row.getString("developer_name"));
+                    propertyData.put("project_name", row.isNull("project_name") ? "" : row.getString("project_name"));
+                    propertyData.put("contractor_name", row.isNull("contractor_name") ? "" : row.getString("contractor_name"));
+                    propertyData.put("spa_price_rm", row.isNull("spa_price_rm") ? null : row.getBigDecimal("spa_price_rm"));
+                    propertyData.put("open_market_rm", row.isNull("open_market_rm") ? null : row.getBigDecimal("open_market_rm"));
+                    propertyData.put("renovation_value_rm", row.isNull("renovation_value_rm") ? null : row.getBigDecimal("renovation_value_rm"));
+                    propertyData.put("property_address", row.isNull("property_address") ? "" : row.getString("property_address"));
+                    propertyData.put("property_postcode", row.isNull("property_postcode") ? "" : row.getString("property_postcode"));
+                    propertyData.put("property_city", row.isNull("property_city") ? "" : row.getString("property_city"));
+                    propertyData.put("property_state", row.isNull("property_state") ? "" : row.getString("property_state"));
+                    propertyData.put("title_number", row.isNull("title_number") ? "" : row.getString("title_number"));
+                    propertyData.put("title_type", row.isNull("title_type") ? "" : row.getString("title_type"));
+                    propertyData.put("lot_number", row.isNull("lot_number") ? "" : row.getString("lot_number"));
+                    propertyData.put("mukim", row.isNull("mukim") ? "" : row.getString("mukim"));
+                    propertyData.put("district", row.isNull("district") ? "" : row.getString("district"));
+                    propertyData.put("is_owner_occupied", row.isNull("is_owner_occupied") ? null : row.getBoolean("is_owner_occupied"));
+                    propertyData.put("is_first_time_buyer", row.isNull("is_first_time_buyer") ? null : row.getBoolean("is_first_time_buyer"));
+                }
+            }
+            result.put("property", propertyData);
+
+            return result;
+        }).subscribeOn(Schedulers.boundedElastic()).flatMap(Mono::justOrEmpty);
+    }
+
+    @Override
     public Mono<Void> create(String transactionId, String userId, String applicationType, KycProfile kycProfile) {
         return Mono.fromRunnable(() -> {
             Mutation applicationMutation = Mutation.newInsertBuilder("application")

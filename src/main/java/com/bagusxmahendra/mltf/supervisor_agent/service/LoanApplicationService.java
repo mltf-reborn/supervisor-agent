@@ -8,6 +8,7 @@ import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.LoanApplicationRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import java.util.Map;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
@@ -85,6 +86,41 @@ public class LoanApplicationService {
                         HttpStatus.NOT_FOUND,
                         "Application not found for customer"
                 )));
+    }
+
+    public Mono<Map<String, Object>> getApplicationDetails(String transactionId, String userId) {
+        if (transactionId == null || transactionId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application ID is required"));
+        }
+        if (userId == null || userId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
+        }
+        return loanApplicationRepository.getApplicationDetails(transactionId.trim(), userId.trim())
+                .switchIfEmpty(Mono.error(new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Application details not found for transaction: " + transactionId
+                )));
+    }
+
+    public Mono<Void> saveApplicationDetails(String transactionId, String userId, Map<String, Object> payload) {
+        if (transactionId == null || transactionId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application ID is required"));
+        }
+        if (userId == null || userId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
+        }
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> applicantData = (Map<String, Object>) payload.getOrDefault("applicant", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> applicationData = (Map<String, Object>) payload.getOrDefault("application", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> propertyData = (Map<String, Object>) payload.getOrDefault("property", java.util.Collections.emptyMap());
+
+        Map<String, Object> mutableAppData = new java.util.HashMap<>(applicationData);
+        mutableAppData.put("status", "SUBMITTED");
+
+        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), applicantData, mutableAppData, propertyData);
     }
 
     public Mono<Void> deleteApplication(String transactionId, String userId) {
