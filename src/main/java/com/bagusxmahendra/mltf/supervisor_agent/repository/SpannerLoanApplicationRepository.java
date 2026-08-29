@@ -287,22 +287,37 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
             // 3. Property table update/insert
             if (propertyData != null && !propertyData.isEmpty()) {
-                // Check if property record exists for transaction_id
-                Statement checkProperty = Statement.newBuilder(
-                                "SELECT property_id FROM property WHERE transaction_id = @transactionId LIMIT 1")
-                        .bind("transactionId").to(transactionId)
-                        .build();
+                String propertyId = extractString(propertyData, "property_id", "propertyId");
+                
+                // Check if property record exists for transaction_id if not explicitly provided
+                if (propertyId == null || propertyId.isBlank()) {
+                    Statement checkProperty = Statement.newBuilder(
+                                    "SELECT property_id FROM property WHERE transaction_id = @transactionId LIMIT 1")
+                            .bind("transactionId").to(transactionId)
+                            .build();
 
-                String propertyId = null;
-                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkProperty)) {
-                    if (rs.next()) {
-                        propertyId = rs.getString("property_id");
+                    try (ResultSet rs = databaseClient.singleUse().executeQuery(checkProperty)) {
+                        if (rs.next()) {
+                            propertyId = rs.getString("property_id");
+                        }
                     }
                 }
 
-                boolean propertyExists = (propertyId != null);
-                if (propertyId == null) {
-                    propertyId = extractString(propertyData, "property_id", "propertyId", "PROP-" + UUID.randomUUID());
+                boolean propertyExists = false;
+                if (propertyId != null && !propertyId.isBlank()) {
+                    Statement checkSpecificProperty = Statement.newBuilder(
+                                    "SELECT property_id FROM property WHERE transaction_id = @transactionId AND property_id = @propertyId")
+                            .bind("transactionId").to(transactionId)
+                            .bind("propertyId").to(propertyId)
+                            .build();
+                    try (ResultSet rs = databaseClient.singleUse().executeQuery(checkSpecificProperty)) {
+                        propertyExists = rs.next();
+                    }
+                }
+
+                if (propertyId == null || propertyId.isBlank()) {
+                    propertyId = "PROP-" + UUID.randomUUID().toString();
+                    propertyExists = false;
                 }
 
                 Mutation.WriteBuilder b = propertyExists
@@ -373,10 +388,32 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             }
             String resolvedApplicantId = applicantId;
             if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
-                resolvedApplicantId = extractString(applicantData, "applicant_id", "applicantId");
+                resolvedApplicantId = extractString(applicantData, "applicant_id", "applicantId", "user_id", "userId");
             }
             if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
-                throw new IllegalArgumentException("applicantId must not be null or blank");
+                Statement checkApplicantAny = Statement.newBuilder(
+                                "SELECT applicant_id FROM applicant WHERE transaction_id = @transactionId LIMIT 1")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApplicantAny)) {
+                    if (rs.next()) {
+                        resolvedApplicantId = rs.getString("applicant_id");
+                    }
+                }
+            }
+            if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
+                Statement checkUser = Statement.newBuilder(
+                                "SELECT user_id FROM application WHERE transaction_id = @transactionId LIMIT 1")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkUser)) {
+                    if (rs.next()) {
+                        resolvedApplicantId = rs.getString("user_id");
+                    }
+                }
+            }
+            if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
+                resolvedApplicantId = "usr_primary";
             }
 
             Statement checkApplicant = Statement.newBuilder(
@@ -468,9 +505,21 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 }
             }
 
-            boolean propertyExists = (resolvedPropertyId != null);
-            if (resolvedPropertyId == null) {
-                resolvedPropertyId = "PROP-" + UUID.randomUUID();
+            boolean propertyExists = false;
+            if (resolvedPropertyId != null && !resolvedPropertyId.isBlank()) {
+                Statement checkSpecific = Statement.newBuilder(
+                                "SELECT property_id FROM property WHERE transaction_id = @transactionId AND property_id = @propertyId")
+                        .bind("transactionId").to(transactionId)
+                        .bind("propertyId").to(resolvedPropertyId)
+                        .build();
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkSpecific)) {
+                    propertyExists = rs.next();
+                }
+            }
+
+            if (resolvedPropertyId == null || resolvedPropertyId.isBlank()) {
+                resolvedPropertyId = "PROP-" + UUID.randomUUID().toString();
+                propertyExists = false;
             }
 
             Mutation.WriteBuilder b = propertyExists
