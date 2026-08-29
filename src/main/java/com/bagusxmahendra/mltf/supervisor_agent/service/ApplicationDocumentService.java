@@ -3,6 +3,7 @@ package com.bagusxmahendra.mltf.supervisor_agent.service;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.ApplicationDocumentResponse;
 import com.bagusxmahendra.mltf.supervisor_agent.dto.FileUploadResult;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.LoanApplicationRepository;
+import com.bagusxmahendra.mltf.supervisor_agent.repository.ApplicationDocumentRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.codec.multipart.FilePart;
 import org.springframework.stereotype.Service;
@@ -17,15 +18,18 @@ public class ApplicationDocumentService {
     private final LoanApplicationRepository loanApplicationRepository;
     private final StorageService storageService;
     private final LoanApplicationAgentService loanApplicationAgentService;
+    private final ApplicationDocumentRepository applicationDocumentRepository;
 
     public ApplicationDocumentService(
             LoanApplicationRepository loanApplicationRepository,
             StorageService storageService,
-            LoanApplicationAgentService loanApplicationAgentService
+            LoanApplicationAgentService loanApplicationAgentService,
+            ApplicationDocumentRepository applicationDocumentRepository
     ) {
         this.loanApplicationRepository = loanApplicationRepository;
         this.storageService = storageService;
         this.loanApplicationAgentService = loanApplicationAgentService;
+        this.applicationDocumentRepository = applicationDocumentRepository;
     }
 
     public Mono<ApplicationDocumentResponse> uploadAndProcess(
@@ -66,6 +70,37 @@ public class ApplicationDocumentService {
                                     upload.fileUrl(),
                                     upload.contentType()
                             ));
+                });
+    }
+
+    public Mono<Void> deleteDocument(
+            String applicationId,
+            String userId,
+            String documentId
+    ) {
+        if (applicationId == null || applicationId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "applicationID is required"));
+        }
+        if (userId == null || userId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
+        }
+        if (documentId == null || documentId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "documentID is required"));
+        }
+
+        String sanitizedApplicationId = applicationId.trim();
+        String sanitizedUserId = userId.trim();
+        String sanitizedDocumentId = documentId.trim();
+
+        return loanApplicationRepository.existsByTransactionIdAndUserId(sanitizedApplicationId, sanitizedUserId)
+                .flatMap(applicationExists -> {
+                    if (!applicationExists) {
+                        return Mono.error(new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Application not found for customer"
+                        ));
+                    }
+                    return applicationDocumentRepository.delete(sanitizedApplicationId, sanitizedDocumentId);
                 });
     }
 }

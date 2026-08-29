@@ -199,6 +199,37 @@ public class LoanApplicationController {
         }
     }
 
+    @DeleteMapping("/document")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public Mono<Void> deleteDocument(
+            @RequestParam("applicationID") String applicationId,
+            @RequestParam("documentID") String documentId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            return applicationDocumentService.deleteDocument(
+                    applicationId,
+                    auth0JwtService.extractUserId(authHeader),
+                    documentId
+            );
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+    }
+
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public Mono<Void> delete(

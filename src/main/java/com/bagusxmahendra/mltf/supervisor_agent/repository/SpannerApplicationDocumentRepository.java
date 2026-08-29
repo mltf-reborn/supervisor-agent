@@ -3,6 +3,7 @@ package com.bagusxmahendra.mltf.supervisor_agent.repository;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Value;
+import com.google.cloud.spanner.Key;
 import org.springframework.stereotype.Repository;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -41,6 +42,14 @@ public class SpannerApplicationDocumentRepository implements ApplicationDocument
                     .set("document_processing_details").to(processingDetails)
                     .set("created_at").to(Value.COMMIT_TIMESTAMP)
                     .build();
+            databaseClient.write(List.of(mutation));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    @Override
+    public Mono<Void> delete(String applicationId, String documentId) {
+        return Mono.fromRunnable(() -> {
+            Mutation mutation = Mutation.delete("document", Key.of(applicationId, documentId));
             databaseClient.write(List.of(mutation));
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }

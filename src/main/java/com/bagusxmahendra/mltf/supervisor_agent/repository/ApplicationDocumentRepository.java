@@ -14,4 +14,6 @@ public interface ApplicationDocumentRepository {
             String message,
             String processingDetails
     );
+
+    Mono<Void> delete(String applicationId, String documentId);
 }

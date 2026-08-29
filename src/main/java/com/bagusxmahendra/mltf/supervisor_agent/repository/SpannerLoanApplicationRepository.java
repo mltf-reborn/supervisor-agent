@@ -741,6 +741,9 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         if (existingVal == null || incomingVal == null) {
             return;
         }
+        if (isEmptyOrZeroOrNA(existingVal)) {
+            return;
+        }
         String sExisting = existingVal.toString().trim();
         String sIncoming = incomingVal.toString().trim();
         if (sExisting.isEmpty() || sIncoming.isEmpty()) {
@@ -984,6 +987,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             return;
         }
         if (existingVal == null || incomingVal == null) return;
+        if (isEmptyOrZeroOrNA(existingVal)) return;
         String sExisting = existingVal.toString().trim();
         String sIncoming = incomingVal.toString().trim();
         if (sExisting.isEmpty() || sIncoming.isEmpty()) return;
@@ -1006,6 +1010,47 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         } else {
             matches.add(detail);
         }
+    }
+
+    private boolean isEmptyOrZeroOrNA(Object val) {
+        if (val == null) {
+            return true;
+        }
+        if (val instanceof BigDecimal bd) {
+            return bd.compareTo(BigDecimal.ZERO) == 0;
+        }
+        if (val instanceof Number n) {
+            return n.doubleValue() == 0.0;
+        }
+        String s = val.toString().trim();
+        if (s.isEmpty()) {
+            return true;
+        }
+        String lower = s.toLowerCase();
+        if (lower.equals("0")
+                || lower.equals("0.0")
+                || lower.equals("0.00")
+                || lower.equals("0.000")
+                || lower.equals("n/a")
+                || lower.equals("na")
+                || lower.equals("n / a")
+                || lower.equals("n.a.")
+                || lower.equals("not applicable")
+                || lower.equals("null")
+                || lower.equals("none")
+                || lower.equals("-")
+                || lower.equals("--")) {
+            return true;
+        }
+        if (isNumeric(s)) {
+            try {
+                double d = Double.parseDouble(cleanNumeric(s));
+                if (d == 0.0) {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        }
+        return false;
     }
 
     private double computeSimilarity(Object existingVal, Object incomingVal) {
