@@ -105,9 +105,11 @@ public class LoanApplicationAgentService {
         if (this.loanApplicationTools != null) {
             try {
                 tools.add(FunctionTool.create(loanApplicationTools, "validateDocument"));
-                tools.add(FunctionTool.create(loanApplicationTools, "saveApplicationData"));
+                tools.add(FunctionTool.create(loanApplicationTools, "saveApplication"));
+                tools.add(FunctionTool.create(loanApplicationTools, "saveApplicant"));
+                tools.add(FunctionTool.create(loanApplicationTools, "saveProperty"));
                 tools.add(FunctionTool.create(loanApplicationTools, "saveDocument"));
-                log.info("Registered 3 ADK tools with LoanApplicationAgent: validateDocument, saveApplicationData, saveDocument");
+                log.info("Registered 5 ADK tools with LoanApplicationAgent: validateDocument, saveApplication, saveApplicant, saveProperty, saveDocument");
             } catch (Exception e) {
                 log.warn("Could not register ADK LoanApplication tools: {}", e.getMessage());
             }
@@ -213,15 +215,15 @@ public class LoanApplicationAgentService {
                     routeExtractedFields(extractedFields, applicantData, applicationData, propertyData);
                 }
 
-                // If any data was found, save it
-                if (!applicantData.isEmpty() || !applicationData.isEmpty() || !propertyData.isEmpty()) {
-                    loanApplicationTools.saveApplicationData(
-                            applicationId,
-                            userId,
-                            applicantData,
-                            applicationData,
-                            propertyData
-                    );
+                // Save data to respective tables via tools
+                if (!applicationData.isEmpty()) {
+                    loanApplicationTools.saveApplication(applicationId, userId, applicationData);
+                }
+                if (!applicantData.isEmpty()) {
+                    loanApplicationTools.saveApplicant(applicationId, userId, applicantData);
+                }
+                if (!propertyData.isEmpty()) {
+                    loanApplicationTools.saveProperty(applicationId, null, propertyData);
                 }
             }
 

@@ -62,7 +62,7 @@ public class LoanApplicationPromptProvider {
                 
                 Workflow:
                 1. Validate the document at the GCS URL using `validateDocument`.
-                2. Check the validation result. If valid, extract relevant applicant, application, and property fields (e.g. race, nationality, etc.) and save them using `saveApplicationData`.
+                2. Check the validation result. If valid, extract relevant application, applicant, and property fields and save them using `saveApplication`, `saveApplicant`, and `saveProperty`.
                 3. Save the document record in the database using `saveDocument`.
                 4. Return the structured JSON outcome.
                 """.formatted(
@@ -79,7 +79,7 @@ public class LoanApplicationPromptProvider {
         return """
                 You are the LoanApplicationAgent built with Google ADK.
                 Your task is to validate loan application documents using validateDocument,
-                save extracted fields to applicant, application, and property tables using saveApplicationData,
+                save extracted fields to application, applicant, and property tables using saveApplication, saveApplicant, and saveProperty,
                 and persist document metadata to the document table using saveDocument.
                 Return the final status as clean JSON.
                 """;

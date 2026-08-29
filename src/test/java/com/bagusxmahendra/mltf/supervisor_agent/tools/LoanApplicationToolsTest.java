@@ -71,6 +71,54 @@ class LoanApplicationToolsTest {
     }
 
     @Test
+    void saveApplication_shouldCallRepository() {
+        when(loanApplicationRepository.saveApplication(eq("TXN-1"), eq("usr_1"), any()))
+                .thenReturn(Mono.empty());
+
+        Map<String, Object> result = tools.saveApplication(
+                "TXN-1", "usr_1", "Maybank", "HOME_LOAN", "NEW", "Conventional", "Purchase property", "YES", "2026-08-29"
+        );
+
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.get("status"));
+        verify(loanApplicationRepository).saveApplication(eq("TXN-1"), eq("usr_1"), any());
+    }
+
+    @Test
+    void saveApplicant_shouldCallRepository() {
+        when(loanApplicationRepository.saveApplicant(eq("TXN-1"), eq("usr_1"), any()))
+                .thenReturn(Mono.empty());
+
+        Map<String, Object> result = tools.saveApplicant(
+                "TXN-1", "usr_1", "Primary", "Ahmad", "NRIC", "940822-10-5819", "Malaysian", "Malay",
+                true, "MALE", "SINGLE", "1994-08-22", 0L, "Bachelor", "0123456789", null,
+                "ahmad@test.com", "123 St", "50000", "KL", "KL", null, null, "EMPLOYED",
+                "Tech Sdn Bhd", "IT", "Engineer", "Senior", 3.5, 10000.0, 120000.0,
+                null, null, null, null, null, null, null, null
+        );
+
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.get("status"));
+        verify(loanApplicationRepository).saveApplicant(eq("TXN-1"), eq("usr_1"), any());
+    }
+
+    @Test
+    void saveProperty_shouldCallRepository() {
+        when(loanApplicationRepository.saveProperty(eq("TXN-1"), eq("PROP-1"), any()))
+                .thenReturn(Mono.empty());
+
+        Map<String, Object> result = tools.saveProperty(
+                "TXN-1", "PROP-1", "Condominium", "Completed", "Dev Corp", "Sky Heights", "Builder Co",
+                500000.0, 520000.0, 30000.0, "Unit 10-2, Sky Heights", "50000", "KL", "KL",
+                "STRATA-123", "Strata Title", "Lot 100", "Mukim Batu", "Kuala Lumpur", true, true
+        );
+
+        assertNotNull(result);
+        assertEquals("SUCCESS", result.get("status"));
+        verify(loanApplicationRepository).saveProperty(eq("TXN-1"), eq("PROP-1"), any());
+    }
+
+    @Test
     void saveDocument_shouldCallRepository() {
         when(applicationDocumentRepository.save(
                 eq("TXN-1"), eq("DOC-1"), eq("file.pdf"), eq("gs://bucket/doc.pdf"),

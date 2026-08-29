@@ -343,6 +343,168 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
+    @Override
+    public Mono<Void> saveApplication(String transactionId, String userId, Map<String, Object> applicationData) {
+        return Mono.fromRunnable(() -> {
+            if (applicationData == null || applicationData.isEmpty()) {
+                return;
+            }
+            Mutation.WriteBuilder b = Mutation.newUpdateBuilder("application");
+            b.set("transaction_id").to(transactionId);
+
+            setIfPresent(b, "bank_selection", extractString(applicationData, "bank_selection", "bankSelection", "bank"));
+            setIfPresent(b, "application_type", extractString(applicationData, "application_type", "applicationType"));
+            setIfPresent(b, "status", extractString(applicationData, "status", "applicationStatus"));
+            setIfPresent(b, "facility_type", extractString(applicationData, "facility_type", "facilityType"));
+            setIfPresent(b, "facility_purpose", extractString(applicationData, "facility_purpose", "facilityPurpose"));
+            setIfPresent(b, "marketing_consent", extractString(applicationData, "marketing_consent", "marketingConsent"));
+            setIfPresent(b, "application_date", extractDate(applicationData, "application_date", "applicationDate"));
+
+            log.info("Executing database mutation to update 'application' table for transaction: {}", transactionId);
+            databaseClient.write(List.of(b.build()));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    @Override
+    public Mono<Void> saveApplicant(String transactionId, String applicantId, Map<String, Object> applicantData) {
+        return Mono.fromRunnable(() -> {
+            if (applicantData == null || applicantData.isEmpty()) {
+                return;
+            }
+            String resolvedApplicantId = applicantId;
+            if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
+                resolvedApplicantId = extractString(applicantData, "applicant_id", "applicantId");
+            }
+            if (resolvedApplicantId == null || resolvedApplicantId.isBlank()) {
+                throw new IllegalArgumentException("applicantId must not be null or blank");
+            }
+
+            Statement checkApplicant = Statement.newBuilder(
+                            "SELECT applicant_id FROM applicant WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
+                    .bind("transactionId").to(transactionId)
+                    .bind("applicantId").to(resolvedApplicantId)
+                    .build();
+
+            boolean applicantExists = false;
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApplicant)) {
+                applicantExists = rs.next();
+            }
+
+            Mutation.WriteBuilder b = applicantExists
+                    ? Mutation.newUpdateBuilder("applicant")
+                    : Mutation.newInsertBuilder("applicant");
+
+            b.set("transaction_id").to(transactionId);
+            b.set("applicant_id").to(resolvedApplicantId);
+            if (!applicantExists) {
+                b.set("role").to(extractString(applicantData, "role", "role", "Primary"));
+            }
+
+            setIfPresent(b, "role", extractString(applicantData, "role"));
+            setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
+            setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
+            setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber"));
+            setIfPresent(b, "nationality", extractString(applicantData, "nationality"));
+            setIfPresent(b, "race", extractString(applicantData, "race"));
+            setIfPresent(b, "bumiputera_status", extractBoolean(applicantData, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
+            setIfPresent(b, "gender", extractString(applicantData, "gender", "sex"));
+            setIfPresent(b, "marital_status", extractString(applicantData, "marital_status", "maritalStatus"));
+            setIfPresent(b, "date_of_birth", extractDate(applicantData, "date_of_birth", "dateOfBirth", "dob"));
+            setIfPresent(b, "dependents_count", extractLong(applicantData, "dependents_count", "dependentsCount"));
+            setIfPresent(b, "education_level", extractString(applicantData, "education_level", "educationLevel"));
+            setIfPresent(b, "mobile_phone", extractString(applicantData, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"));
+            setIfPresent(b, "residential_phone", extractString(applicantData, "residential_phone", "residentialPhone"));
+            setIfPresent(b, "email", extractString(applicantData, "email"));
+            setIfPresent(b, "perm_address", extractString(applicantData, "perm_address", "permAddress", "address"));
+            setIfPresent(b, "perm_postcode", extractString(applicantData, "perm_postcode", "permPostcode", "postalCode", "postcode"));
+            setIfPresent(b, "perm_city", extractString(applicantData, "perm_city", "permCity", "city"));
+            setIfPresent(b, "perm_state", extractString(applicantData, "perm_state", "permState", "state"));
+            setIfPresent(b, "mail_address", extractString(applicantData, "mail_address", "mailAddress", "mailingAddress"));
+            setIfPresent(b, "mail_postcode", extractString(applicantData, "mail_postcode", "mailPostcode", "mailingPostcode"));
+            setIfPresent(b, "employment_status", extractString(applicantData, "employment_status", "employmentStatus"));
+            setIfPresent(b, "employer_name", extractString(applicantData, "employer_name", "employerName"));
+            setIfPresent(b, "nature_of_business", extractString(applicantData, "nature_of_business", "natureOfBusiness"));
+            setIfPresent(b, "occupation", extractString(applicantData, "occupation"));
+            setIfPresent(b, "job_position", extractString(applicantData, "job_position", "jobPosition", "position"));
+            setIfPresent(b, "length_of_service_years", extractBigDecimal(applicantData, "length_of_service_years", "lengthOfServiceYears"));
+            setIfPresent(b, "monthly_gross_rm", extractBigDecimal(applicantData, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"));
+            setIfPresent(b, "annual_gross_rm", extractBigDecimal(applicantData, "annual_gross_rm", "annualGrossRm", "annualIncome"));
+            setIfPresent(b, "emergency_name", extractString(applicantData, "emergency_name", "emergencyName"));
+            setIfPresent(b, "emergency_relationship", extractString(applicantData, "emergency_relationship", "emergencyRelationship"));
+            setIfPresent(b, "emergency_phone", extractString(applicantData, "emergency_phone", "emergencyPhone"));
+            setIfPresent(b, "spouse_full_name", extractString(applicantData, "spouse_full_name", "spouseFullName", "spouseName"));
+            setIfPresent(b, "spouse_id_no", extractString(applicantData, "spouse_id_no", "spouseIdNo"));
+            setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile"));
+            setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
+            setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
+
+            log.info("Executing database mutation to update 'applicant' table for transaction: {}, applicantId: {}", transactionId, resolvedApplicantId);
+            databaseClient.write(List.of(b.build()));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    @Override
+    public Mono<Void> saveProperty(String transactionId, String propertyId, Map<String, Object> propertyData) {
+        return Mono.fromRunnable(() -> {
+            if (propertyData == null || propertyData.isEmpty()) {
+                return;
+            }
+            String resolvedPropertyId = propertyId;
+            if (resolvedPropertyId == null || resolvedPropertyId.isBlank()) {
+                resolvedPropertyId = extractString(propertyData, "property_id", "propertyId");
+            }
+
+            // Check if property record exists for transaction_id
+            if (resolvedPropertyId == null || resolvedPropertyId.isBlank()) {
+                Statement checkProperty = Statement.newBuilder(
+                                "SELECT property_id FROM property WHERE transaction_id = @transactionId LIMIT 1")
+                        .bind("transactionId").to(transactionId)
+                        .build();
+
+                try (ResultSet rs = databaseClient.singleUse().executeQuery(checkProperty)) {
+                    if (rs.next()) {
+                        resolvedPropertyId = rs.getString("property_id");
+                    }
+                }
+            }
+
+            boolean propertyExists = (resolvedPropertyId != null);
+            if (resolvedPropertyId == null) {
+                resolvedPropertyId = "PROP-" + UUID.randomUUID();
+            }
+
+            Mutation.WriteBuilder b = propertyExists
+                    ? Mutation.newUpdateBuilder("property")
+                    : Mutation.newInsertBuilder("property");
+
+            b.set("transaction_id").to(transactionId);
+            b.set("property_id").to(resolvedPropertyId);
+
+            setIfPresent(b, "property_type", extractString(propertyData, "property_type", "propertyType"));
+            setIfPresent(b, "property_status", extractString(propertyData, "property_status", "propertyStatus"));
+            setIfPresent(b, "developer_name", extractString(propertyData, "developer_name", "developerName"));
+            setIfPresent(b, "project_name", extractString(propertyData, "project_name", "projectName"));
+            setIfPresent(b, "contractor_name", extractString(propertyData, "contractor_name", "contractorName"));
+            setIfPresent(b, "spa_price_rm", extractBigDecimal(propertyData, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
+            setIfPresent(b, "open_market_rm", extractBigDecimal(propertyData, "open_market_rm", "openMarketRm", "openMarketValue"));
+            setIfPresent(b, "renovation_value_rm", extractBigDecimal(propertyData, "renovation_value_rm", "renovationValueRm"));
+            setIfPresent(b, "property_address", extractString(propertyData, "property_address", "propertyAddress", "address"));
+            setIfPresent(b, "property_postcode", extractString(propertyData, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
+            setIfPresent(b, "property_city", extractString(propertyData, "property_city", "propertyCity", "city"));
+            setIfPresent(b, "property_state", extractString(propertyData, "property_state", "propertyState", "state"));
+            setIfPresent(b, "title_number", extractString(propertyData, "title_number", "titleNumber"));
+            setIfPresent(b, "title_type", extractString(propertyData, "title_type", "titleType"));
+            setIfPresent(b, "lot_number", extractString(propertyData, "lot_number", "lotNumber"));
+            setIfPresent(b, "mukim", extractString(propertyData, "mukim"));
+            setIfPresent(b, "district", extractString(propertyData, "district"));
+            setIfPresent(b, "is_owner_occupied", extractBoolean(propertyData, "is_owner_occupied", "isOwnerOccupied"));
+            setIfPresent(b, "is_first_time_buyer", extractBoolean(propertyData, "is_first_time_buyer", "isFirstTimeBuyer"));
+
+            log.info("Executing database mutation to update 'property' table for transaction: {}, propertyId: {}", transactionId, resolvedPropertyId);
+            databaseClient.write(List.of(b.build()));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
     private void setIfPresent(Mutation.WriteBuilder b, String column, String value) {
         if (value != null && !value.isBlank()) {
             b.set(column).to(value.trim());

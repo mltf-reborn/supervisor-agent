@@ -28,4 +28,10 @@ public interface LoanApplicationRepository {
             Map<String, Object> applicationData,
             Map<String, Object> propertyData
     );
+
+    Mono<Void> saveApplication(String transactionId, String userId, Map<String, Object> applicationData);
+
+    Mono<Void> saveApplicant(String transactionId, String applicantId, Map<String, Object> applicantData);
+
+    Mono<Void> saveProperty(String transactionId, String propertyId, Map<String, Object> propertyData);
 }

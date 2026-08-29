@@ -53,7 +53,7 @@ class LoanApplicationAgentServiceTest {
 
         when(loanApplicationTools.validateDocument(eq("gs://bucket/doc.pdf"), eq("application/pdf"), any()))
                 .thenReturn(docResult);
-        when(loanApplicationTools.saveApplicationData(eq("TXN-1"), eq("usr_1"), any(), any(), any()))
+        when(loanApplicationTools.saveApplicant(eq("TXN-1"), eq("usr_1"), any()))
                 .thenReturn(Map.of("status", "SUCCESS"));
         when(loanApplicationTools.saveDocument(eq("TXN-1"), eq("DOC-1"), eq("doc.pdf"), eq("gs://bucket/doc.pdf"), eq("application/pdf"), eq("SUCCESS"), eq("Processed successfully"), any()))
                 .thenReturn(Map.of("status", "SUCCESS"));
@@ -75,7 +75,7 @@ class LoanApplicationAgentServiceTest {
         })
         .verifyComplete();
 
-        verify(loanApplicationTools).saveApplicationData(eq("TXN-1"), eq("usr_1"), any(), any(), any());
+        verify(loanApplicationTools).saveApplicant(eq("TXN-1"), eq("usr_1"), any());
         verify(loanApplicationTools).saveDocument(eq("TXN-1"), eq("DOC-1"), eq("doc.pdf"), eq("gs://bucket/doc.pdf"), eq("application/pdf"), eq("SUCCESS"), eq("Processed successfully"), any());
     }
 }
