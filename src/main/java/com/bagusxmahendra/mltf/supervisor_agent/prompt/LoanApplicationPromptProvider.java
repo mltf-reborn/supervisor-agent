@@ -62,11 +62,13 @@ public class LoanApplicationPromptProvider {
                 
                 Workflow:
                 1. Validate the document at the GCS URL using `validateDocument`.
-                2. If valid, extract applicant, application, and property fields, then verify data integrity against existing records using `checkDataSimilarity`.
-                3. If `checkDataSimilarity` detects conflicts (status: CONFLICT_DETECTED), do NOT save table records; save the document as "FAILED" using `saveDocument` and return documentStatus "FAILED" with the conflict message.
-                4. If `checkDataSimilarity` passes, save extracted fields using `saveApplication`, `saveApplicant`, and `saveProperty`.
-                5. Save the document record in the database using `saveDocument`.
-                6. Return the structured JSON outcome.
+                2. If valid, extract applicant, application, and property fields STRICTLY from the document extraction tool result.
+                   CRITICAL ANTI-HALLUCINATION RULE: Strictly ONLY use values explicitly returned in the `validateDocument` tool response. Do NOT hallucinate, infer, guess, or invent any non-existent values. When a value cannot be found in the document, you MUST send NULL or an empty string "" (or omit it); do NOT put any other value or placeholder.
+                3. Verify data integrity against existing records using `checkDataSimilarity`.
+                4. If `checkDataSimilarity` detects conflicts (status: CONFLICT_DETECTED), do NOT save table records; save the document as "FAILED" using `saveDocument` and return documentStatus "FAILED" with the conflict message.
+                5. If `checkDataSimilarity` passes, save extracted fields using `saveApplication`, `saveApplicant`, and `saveProperty`.
+                6. Save the document record in the database using `saveDocument`.
+                7. Return the structured JSON outcome.
                 """.formatted(
                 applicationId,
                 userId,
@@ -81,6 +83,7 @@ public class LoanApplicationPromptProvider {
         return """
                 You are the LoanApplicationAgent built with Google ADK.
                 Your task is to validate loan application documents using validateDocument,
+                strictly extract only fields explicitly present in the validateDocument tool output without hallucinating or inventing any non-existent values (when a field cannot be found, use NULL or empty string ""),
                 verify data similarity against existing records using checkDataSimilarity,
                 save extracted fields to application, applicant, and property tables using saveApplication, saveApplicant, and saveProperty,
                 and persist document metadata to the document table using saveDocument.

@@ -657,78 +657,84 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     private void validateApplicationSimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
-        if (!row.isNull("bank_selection")) validateSimilarity("application", "bank_selection", row.getString("bank_selection"), extractString(incoming, "bank_selection", "bankSelection", "bank"));
-        if (!row.isNull("application_type")) validateSimilarity("application", "application_type", row.getString("application_type"), extractString(incoming, "application_type", "applicationType"));
-        if (!row.isNull("status")) validateSimilarity("application", "status", row.getString("status"), extractString(incoming, "status", "applicationStatus"));
-        if (!row.isNull("facility_type")) validateSimilarity("application", "facility_type", row.getString("facility_type"), extractString(incoming, "facility_type", "facilityType"));
-        if (!row.isNull("facility_purpose")) validateSimilarity("application", "facility_purpose", row.getString("facility_purpose"), extractString(incoming, "facility_purpose", "facilityPurpose"));
-        if (!row.isNull("marketing_consent")) validateSimilarity("application", "marketing_consent", row.getString("marketing_consent"), extractString(incoming, "marketing_consent", "marketingConsent"));
-        if (!row.isNull("application_date")) validateSimilarity("application", "application_date", row.getDate("application_date").toString(), extractDate(incoming, "application_date", "applicationDate"));
+        List<String> conflicts = new ArrayList<>();
+        if (!row.isNull("bank_selection")) validateSimilarity("application", "bank_selection", row.getString("bank_selection"), extractString(incoming, "bank_selection", "bankSelection", "bank"), conflicts);
+        if (!row.isNull("application_type")) validateSimilarity("application", "application_type", row.getString("application_type"), extractString(incoming, "application_type", "applicationType"), conflicts);
+        if (!row.isNull("status")) validateSimilarity("application", "status", row.getString("status"), extractString(incoming, "status", "applicationStatus"), conflicts);
+        if (!row.isNull("facility_type")) validateSimilarity("application", "facility_type", row.getString("facility_type"), extractString(incoming, "facility_type", "facilityType"), conflicts);
+        if (!row.isNull("facility_purpose")) validateSimilarity("application", "facility_purpose", row.getString("facility_purpose"), extractString(incoming, "facility_purpose", "facilityPurpose"), conflicts);
+        if (!row.isNull("marketing_consent")) validateSimilarity("application", "marketing_consent", row.getString("marketing_consent"), extractString(incoming, "marketing_consent", "marketingConsent"), conflicts);
+        if (!row.isNull("application_date")) validateSimilarity("application", "application_date", row.getDate("application_date").toString(), extractDate(incoming, "application_date", "applicationDate"), conflicts);
+        throwIfConflicts("application", conflicts);
     }
 
     private void validateApplicantSimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
-        if (!row.isNull("role")) validateSimilarity("applicant", "role", row.getString("role"), extractString(incoming, "role"));
-        if (!row.isNull("full_name")) validateSimilarity("applicant", "full_name", row.getString("full_name"), extractString(incoming, "full_name", "fullName", "name"));
-        if (!row.isNull("id_type")) validateSimilarity("applicant", "id_type", row.getString("id_type"), extractString(incoming, "id_type", "idType"));
-        if (!row.isNull("id_no")) validateSimilarity("applicant", "id_no", row.getString("id_no"), extractString(incoming, "id_no", "idNo", "idNumber"));
-        if (!row.isNull("nationality")) validateSimilarity("applicant", "nationality", row.getString("nationality"), extractString(incoming, "nationality"));
-        if (!row.isNull("race")) validateSimilarity("applicant", "race", row.getString("race"), extractString(incoming, "race"));
-        if (!row.isNull("bumiputera_status")) validateSimilarity("applicant", "bumiputera_status", row.getBoolean("bumiputera_status"), extractBoolean(incoming, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
-        if (!row.isNull("gender")) validateSimilarity("applicant", "gender", row.getString("gender"), extractString(incoming, "gender", "sex"));
-        if (!row.isNull("marital_status")) validateSimilarity("applicant", "marital_status", row.getString("marital_status"), extractString(incoming, "marital_status", "maritalStatus"));
-        if (!row.isNull("date_of_birth")) validateSimilarity("applicant", "date_of_birth", row.getDate("date_of_birth").toString(), extractDate(incoming, "date_of_birth", "dateOfBirth", "dob"));
-        if (!row.isNull("dependents_count")) validateSimilarity("applicant", "dependents_count", row.getLong("dependents_count"), extractLong(incoming, "dependents_count", "dependentsCount"));
-        if (!row.isNull("education_level")) validateSimilarity("applicant", "education_level", row.getString("education_level"), extractString(incoming, "education_level", "educationLevel"));
-        if (!row.isNull("mobile_phone")) validateSimilarity("applicant", "mobile_phone", row.getString("mobile_phone"), extractString(incoming, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"));
-        if (!row.isNull("residential_phone")) validateSimilarity("applicant", "residential_phone", row.getString("residential_phone"), extractString(incoming, "residential_phone", "residentialPhone"));
-        if (!row.isNull("email")) validateSimilarity("applicant", "email", row.getString("email"), extractString(incoming, "email"));
-        if (!row.isNull("perm_address")) validateSimilarity("applicant", "perm_address", row.getString("perm_address"), extractString(incoming, "perm_address", "permAddress", "address"));
-        if (!row.isNull("perm_postcode")) validateSimilarity("applicant", "perm_postcode", row.getString("perm_postcode"), extractString(incoming, "perm_postcode", "permPostcode", "postalCode", "postcode"));
-        if (!row.isNull("perm_city")) validateSimilarity("applicant", "perm_city", row.getString("perm_city"), extractString(incoming, "perm_city", "permCity", "city"));
-        if (!row.isNull("perm_state")) validateSimilarity("applicant", "perm_state", row.getString("perm_state"), extractString(incoming, "perm_state", "permState", "state"));
-        if (!row.isNull("mail_address")) validateSimilarity("applicant", "mail_address", row.getString("mail_address"), extractString(incoming, "mail_address", "mailAddress", "mailingAddress"));
-        if (!row.isNull("mail_postcode")) validateSimilarity("applicant", "mail_postcode", row.getString("mail_postcode"), extractString(incoming, "mail_postcode", "mailPostcode", "mailingPostcode"));
-        if (!row.isNull("employment_status")) validateSimilarity("applicant", "employment_status", row.getString("employment_status"), extractString(incoming, "employment_status", "employmentStatus"));
-        if (!row.isNull("employer_name")) validateSimilarity("applicant", "employer_name", row.getString("employer_name"), extractString(incoming, "employer_name", "employerName"));
-        if (!row.isNull("nature_of_business")) validateSimilarity("applicant", "nature_of_business", row.getString("nature_of_business"), extractString(incoming, "nature_of_business", "natureOfBusiness"));
-        if (!row.isNull("occupation")) validateSimilarity("applicant", "occupation", row.getString("occupation"), extractString(incoming, "occupation"));
-        if (!row.isNull("job_position")) validateSimilarity("applicant", "job_position", row.getString("job_position"), extractString(incoming, "job_position", "jobPosition", "position"));
-        if (!row.isNull("length_of_service_years")) validateSimilarity("applicant", "length_of_service_years", row.getBigDecimal("length_of_service_years"), extractBigDecimal(incoming, "length_of_service_years", "lengthOfServiceYears"));
-        if (!row.isNull("monthly_gross_rm")) validateSimilarity("applicant", "monthly_gross_rm", row.getBigDecimal("monthly_gross_rm"), extractBigDecimal(incoming, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"));
-        if (!row.isNull("annual_gross_rm")) validateSimilarity("applicant", "annual_gross_rm", row.getBigDecimal("annual_gross_rm"), extractBigDecimal(incoming, "annual_gross_rm", "annualGrossRm", "annualIncome"));
-        if (!row.isNull("emergency_name")) validateSimilarity("applicant", "emergency_name", row.getString("emergency_name"), extractString(incoming, "emergency_name", "emergencyName"));
-        if (!row.isNull("emergency_relationship")) validateSimilarity("applicant", "emergency_relationship", row.getString("emergency_relationship"), extractString(incoming, "emergency_relationship", "emergencyRelationship"));
-        if (!row.isNull("emergency_phone")) validateSimilarity("applicant", "emergency_phone", row.getString("emergency_phone"), extractString(incoming, "emergency_phone", "emergencyPhone"));
-        if (!row.isNull("spouse_full_name")) validateSimilarity("applicant", "spouse_full_name", row.getString("spouse_full_name"), extractString(incoming, "spouse_full_name", "spouseFullName", "spouseName"));
-        if (!row.isNull("spouse_id_no")) validateSimilarity("applicant", "spouse_id_no", row.getString("spouse_id_no"), extractString(incoming, "spouse_id_no", "spouseIdNo"));
-        if (!row.isNull("spouse_mobile")) validateSimilarity("applicant", "spouse_mobile", row.getString("spouse_mobile"), extractString(incoming, "spouse_mobile", "spouseMobile"));
-        if (!row.isNull("spouse_employer")) validateSimilarity("applicant", "spouse_employer", row.getString("spouse_employer"), extractString(incoming, "spouse_employer", "spouseEmployer"));
-        if (!row.isNull("spouse_monthly_gross_rm")) validateSimilarity("applicant", "spouse_monthly_gross_rm", row.getBigDecimal("spouse_monthly_gross_rm"), extractBigDecimal(incoming, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
+        List<String> conflicts = new ArrayList<>();
+        if (!row.isNull("role")) validateSimilarity("applicant", "role", row.getString("role"), extractString(incoming, "role"), conflicts);
+        if (!row.isNull("full_name")) validateSimilarity("applicant", "full_name", row.getString("full_name"), extractString(incoming, "full_name", "fullName", "name"), conflicts);
+        if (!row.isNull("id_type")) validateSimilarity("applicant", "id_type", row.getString("id_type"), extractString(incoming, "id_type", "idType"), conflicts);
+        if (!row.isNull("id_no")) validateSimilarity("applicant", "id_no", row.getString("id_no"), extractString(incoming, "id_no", "idNo", "idNumber"), conflicts);
+        if (!row.isNull("nationality")) validateSimilarity("applicant", "nationality", row.getString("nationality"), extractString(incoming, "nationality"), conflicts);
+        if (!row.isNull("race")) validateSimilarity("applicant", "race", row.getString("race"), extractString(incoming, "race"), conflicts);
+        if (!row.isNull("bumiputera_status")) validateSimilarity("applicant", "bumiputera_status", row.getBoolean("bumiputera_status"), extractBoolean(incoming, "bumiputera_status", "bumiputeraStatus", "isBumiputera"), conflicts);
+        if (!row.isNull("gender")) validateSimilarity("applicant", "gender", row.getString("gender"), extractString(incoming, "gender", "sex"), conflicts);
+        if (!row.isNull("marital_status")) validateSimilarity("applicant", "marital_status", row.getString("marital_status"), extractString(incoming, "marital_status", "maritalStatus"), conflicts);
+        if (!row.isNull("date_of_birth")) validateSimilarity("applicant", "date_of_birth", row.getDate("date_of_birth").toString(), extractDate(incoming, "date_of_birth", "dateOfBirth", "dob"), conflicts);
+        if (!row.isNull("dependents_count")) validateSimilarity("applicant", "dependents_count", row.getLong("dependents_count"), extractLong(incoming, "dependents_count", "dependentsCount"), conflicts);
+        if (!row.isNull("education_level")) validateSimilarity("applicant", "education_level", row.getString("education_level"), extractString(incoming, "education_level", "educationLevel"), conflicts);
+        if (!row.isNull("mobile_phone")) validateSimilarity("applicant", "mobile_phone", row.getString("mobile_phone"), extractString(incoming, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"), conflicts);
+        if (!row.isNull("residential_phone")) validateSimilarity("applicant", "residential_phone", row.getString("residential_phone"), extractString(incoming, "residential_phone", "residentialPhone"), conflicts);
+        if (!row.isNull("email")) validateSimilarity("applicant", "email", row.getString("email"), extractString(incoming, "email"), conflicts);
+        if (!row.isNull("perm_address")) validateSimilarity("applicant", "perm_address", row.getString("perm_address"), extractString(incoming, "perm_address", "permAddress", "address"), conflicts);
+        if (!row.isNull("perm_postcode")) validateSimilarity("applicant", "perm_postcode", row.getString("perm_postcode"), extractString(incoming, "perm_postcode", "permPostcode", "postalCode", "postcode"), conflicts);
+        if (!row.isNull("perm_city")) validateSimilarity("applicant", "perm_city", row.getString("perm_city"), extractString(incoming, "perm_city", "permCity", "city"), conflicts);
+        if (!row.isNull("perm_state")) validateSimilarity("applicant", "perm_state", row.getString("perm_state"), extractString(incoming, "perm_state", "permState", "state"), conflicts);
+        if (!row.isNull("mail_address")) validateSimilarity("applicant", "mail_address", row.getString("mail_address"), extractString(incoming, "mail_address", "mailAddress", "mailingAddress"), conflicts);
+        if (!row.isNull("mail_postcode")) validateSimilarity("applicant", "mail_postcode", row.getString("mail_postcode"), extractString(incoming, "mail_postcode", "mailPostcode", "mailingPostcode"), conflicts);
+        if (!row.isNull("employment_status")) validateSimilarity("applicant", "employment_status", row.getString("employment_status"), extractString(incoming, "employment_status", "employmentStatus"), conflicts);
+        if (!row.isNull("employer_name")) validateSimilarity("applicant", "employer_name", row.getString("employer_name"), extractString(incoming, "employer_name", "employerName"), conflicts);
+        if (!row.isNull("nature_of_business")) validateSimilarity("applicant", "nature_of_business", row.getString("nature_of_business"), extractString(incoming, "nature_of_business", "natureOfBusiness"), conflicts);
+        if (!row.isNull("occupation")) validateSimilarity("applicant", "occupation", row.getString("occupation"), extractString(incoming, "occupation"), conflicts);
+        if (!row.isNull("job_position")) validateSimilarity("applicant", "job_position", row.getString("job_position"), extractString(incoming, "job_position", "jobPosition", "position"), conflicts);
+        if (!row.isNull("length_of_service_years")) validateSimilarity("applicant", "length_of_service_years", row.getBigDecimal("length_of_service_years"), extractBigDecimal(incoming, "length_of_service_years", "lengthOfServiceYears"), conflicts);
+        if (!row.isNull("monthly_gross_rm")) validateSimilarity("applicant", "monthly_gross_rm", row.getBigDecimal("monthly_gross_rm"), extractBigDecimal(incoming, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"), conflicts);
+        if (!row.isNull("annual_gross_rm")) validateSimilarity("applicant", "annual_gross_rm", row.getBigDecimal("annual_gross_rm"), extractBigDecimal(incoming, "annual_gross_rm", "annualGrossRm", "annualIncome"), conflicts);
+        if (!row.isNull("emergency_name")) validateSimilarity("applicant", "emergency_name", row.getString("emergency_name"), extractString(incoming, "emergency_name", "emergencyName"), conflicts);
+        if (!row.isNull("emergency_relationship")) validateSimilarity("applicant", "emergency_relationship", row.getString("emergency_relationship"), extractString(incoming, "emergency_relationship", "emergencyRelationship"), conflicts);
+        if (!row.isNull("emergency_phone")) validateSimilarity("applicant", "emergency_phone", row.getString("emergency_phone"), extractString(incoming, "emergency_phone", "emergencyPhone"), conflicts);
+        if (!row.isNull("spouse_full_name")) validateSimilarity("applicant", "spouse_full_name", row.getString("spouse_full_name"), extractString(incoming, "spouse_full_name", "spouseFullName", "spouseName"), conflicts);
+        if (!row.isNull("spouse_id_no")) validateSimilarity("applicant", "spouse_id_no", row.getString("spouse_id_no"), extractString(incoming, "spouse_id_no", "spouseIdNo"), conflicts);
+        if (!row.isNull("spouse_mobile")) validateSimilarity("applicant", "spouse_mobile", row.getString("spouse_mobile"), extractString(incoming, "spouse_mobile", "spouseMobile"), conflicts);
+        if (!row.isNull("spouse_employer")) validateSimilarity("applicant", "spouse_employer", row.getString("spouse_employer"), extractString(incoming, "spouse_employer", "spouseEmployer"), conflicts);
+        if (!row.isNull("spouse_monthly_gross_rm")) validateSimilarity("applicant", "spouse_monthly_gross_rm", row.getBigDecimal("spouse_monthly_gross_rm"), extractBigDecimal(incoming, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"), conflicts);
+        throwIfConflicts("applicant", conflicts);
     }
 
     private void validatePropertySimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
-        if (!row.isNull("property_type")) validateSimilarity("property", "property_type", row.getString("property_type"), extractString(incoming, "property_type", "propertyType"));
-        if (!row.isNull("property_status")) validateSimilarity("property", "property_status", row.getString("property_status"), extractString(incoming, "property_status", "propertyStatus"));
-        if (!row.isNull("developer_name")) validateSimilarity("property", "developer_name", row.getString("developer_name"), extractString(incoming, "developer_name", "developerName"));
-        if (!row.isNull("project_name")) validateSimilarity("property", "project_name", row.getString("project_name"), extractString(incoming, "project_name", "projectName"));
-        if (!row.isNull("contractor_name")) validateSimilarity("property", "contractor_name", row.getString("contractor_name"), extractString(incoming, "contractor_name", "contractorName"));
-        if (!row.isNull("spa_price_rm")) validateSimilarity("property", "spa_price_rm", row.getBigDecimal("spa_price_rm"), extractBigDecimal(incoming, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
-        if (!row.isNull("open_market_rm")) validateSimilarity("property", "open_market_rm", row.getBigDecimal("open_market_rm"), extractBigDecimal(incoming, "open_market_rm", "openMarketRm", "openMarketValue"));
-        if (!row.isNull("renovation_value_rm")) validateSimilarity("property", "renovation_value_rm", row.getBigDecimal("renovation_value_rm"), extractBigDecimal(incoming, "renovation_value_rm", "renovationValueRm"));
-        if (!row.isNull("property_address")) validateSimilarity("property", "property_address", row.getString("property_address"), extractString(incoming, "property_address", "propertyAddress", "address"));
-        if (!row.isNull("property_postcode")) validateSimilarity("property", "property_postcode", row.getString("property_postcode"), extractString(incoming, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
-        if (!row.isNull("property_city")) validateSimilarity("property", "property_city", row.getString("property_city"), extractString(incoming, "property_city", "propertyCity", "city"));
-        if (!row.isNull("property_state")) validateSimilarity("property", "property_state", row.getString("property_state"), extractString(incoming, "property_state", "propertyState", "state"));
-        if (!row.isNull("title_number")) validateSimilarity("property", "title_number", row.getString("title_number"), extractString(incoming, "title_number", "titleNumber"));
-        if (!row.isNull("title_type")) validateSimilarity("property", "title_type", row.getString("title_type"), extractString(incoming, "title_type", "titleType"));
-        if (!row.isNull("lot_number")) validateSimilarity("property", "lot_number", row.getString("lot_number"), extractString(incoming, "lot_number", "lotNumber"));
-        if (!row.isNull("mukim")) validateSimilarity("property", "mukim", row.getString("mukim"), extractString(incoming, "mukim"));
-        if (!row.isNull("district")) validateSimilarity("property", "district", row.getString("district"), extractString(incoming, "district"));
-        if (!row.isNull("is_owner_occupied")) validateSimilarity("property", "is_owner_occupied", row.getBoolean("is_owner_occupied"), extractBoolean(incoming, "is_owner_occupied", "isOwnerOccupied"));
-        if (!row.isNull("is_first_time_buyer")) validateSimilarity("property", "is_first_time_buyer", row.getBoolean("is_first_time_buyer"), extractBoolean(incoming, "is_first_time_buyer", "isFirstTimeBuyer"));
+        List<String> conflicts = new ArrayList<>();
+        if (!row.isNull("property_type")) validateSimilarity("property", "property_type", row.getString("property_type"), extractString(incoming, "property_type", "propertyType"), conflicts);
+        if (!row.isNull("property_status")) validateSimilarity("property", "property_status", row.getString("property_status"), extractString(incoming, "property_status", "propertyStatus"), conflicts);
+        if (!row.isNull("developer_name")) validateSimilarity("property", "developer_name", row.getString("developer_name"), extractString(incoming, "developer_name", "developerName"), conflicts);
+        if (!row.isNull("project_name")) validateSimilarity("property", "project_name", row.getString("project_name"), extractString(incoming, "project_name", "projectName"), conflicts);
+        if (!row.isNull("contractor_name")) validateSimilarity("property", "contractor_name", row.getString("contractor_name"), extractString(incoming, "contractor_name", "contractorName"), conflicts);
+        if (!row.isNull("spa_price_rm")) validateSimilarity("property", "spa_price_rm", row.getBigDecimal("spa_price_rm"), extractBigDecimal(incoming, "spa_price_rm", "spaPriceRm", "spaPrice", "price"), conflicts);
+        if (!row.isNull("open_market_rm")) validateSimilarity("property", "open_market_rm", row.getBigDecimal("open_market_rm"), extractBigDecimal(incoming, "open_market_rm", "openMarketRm", "openMarketValue"), conflicts);
+        if (!row.isNull("renovation_value_rm")) validateSimilarity("property", "renovation_value_rm", row.getBigDecimal("renovation_value_rm"), extractBigDecimal(incoming, "renovation_value_rm", "renovationValueRm"), conflicts);
+        if (!row.isNull("property_address")) validateSimilarity("property", "property_address", row.getString("property_address"), extractString(incoming, "property_address", "propertyAddress", "address"), conflicts);
+        if (!row.isNull("property_postcode")) validateSimilarity("property", "property_postcode", row.getString("property_postcode"), extractString(incoming, "property_postcode", "propertyPostcode", "postcode", "postalCode"), conflicts);
+        if (!row.isNull("property_city")) validateSimilarity("property", "property_city", row.getString("property_city"), extractString(incoming, "property_city", "propertyCity", "city"), conflicts);
+        if (!row.isNull("property_state")) validateSimilarity("property", "property_state", row.getString("property_state"), extractString(incoming, "property_state", "propertyState", "state"), conflicts);
+        if (!row.isNull("title_number")) validateSimilarity("property", "title_number", row.getString("title_number"), extractString(incoming, "title_number", "titleNumber"), conflicts);
+        if (!row.isNull("title_type")) validateSimilarity("property", "title_type", row.getString("title_type"), extractString(incoming, "title_type", "titleType"), conflicts);
+        if (!row.isNull("lot_number")) validateSimilarity("property", "lot_number", row.getString("lot_number"), extractString(incoming, "lot_number", "lotNumber"), conflicts);
+        if (!row.isNull("mukim")) validateSimilarity("property", "mukim", row.getString("mukim"), extractString(incoming, "mukim"), conflicts);
+        if (!row.isNull("district")) validateSimilarity("property", "district", row.getString("district"), extractString(incoming, "district"), conflicts);
+        if (!row.isNull("is_owner_occupied")) validateSimilarity("property", "is_owner_occupied", row.getBoolean("is_owner_occupied"), extractBoolean(incoming, "is_owner_occupied", "isOwnerOccupied"), conflicts);
+        if (!row.isNull("is_first_time_buyer")) validateSimilarity("property", "is_first_time_buyer", row.getBoolean("is_first_time_buyer"), extractBoolean(incoming, "is_first_time_buyer", "isFirstTimeBuyer"), conflicts);
+        throwIfConflicts("property", conflicts);
     }
 
-    private void validateSimilarity(String table, String field, Object existingVal, Object incomingVal) {
+    private void validateSimilarity(String table, String field, Object existingVal, Object incomingVal, List<String> conflicts) {
         if (this.properties.isFieldIgnored(field)) {
             return;
         }
@@ -747,9 +753,26 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     "Conflicting data in document for %s field '%s': existing value '%s' vs incoming value '%s' (similarity %.1f%% is below threshold %.1f%%)",
                     table, field, sExisting, sIncoming, similarity * 100.0, this.similarityThreshold * 100.0
             );
-            log.warn(errorMsg);
-            throw new IllegalArgumentException(errorMsg);
+            conflicts.add(errorMsg);
         }
+    }
+
+    private void throwIfConflicts(String table, List<String> conflicts) {
+        if (conflicts == null || conflicts.isEmpty()) {
+            return;
+        }
+        if (conflicts.size() == 1) {
+            log.warn(conflicts.get(0));
+            throw new IllegalArgumentException(conflicts.get(0));
+        }
+        StringBuilder sb = new StringBuilder(String.format("Multiple conflicts detected in document for %s (%d conflicts): ", table, conflicts.size()));
+        for (int i = 0; i < conflicts.size(); i++) {
+            if (i > 0) sb.append("; ");
+            sb.append(String.format("[%d] %s", i + 1, conflicts.get(i)));
+        }
+        String summary = sb.toString();
+        log.warn(summary);
+        throw new IllegalArgumentException(summary);
     }
 
     @Override
@@ -931,7 +954,16 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             result.put("conflicts", conflicts);
             result.put("matches", matches);
             if (hasConflict) {
-                result.put("message", conflicts.get(0).get("message").toString());
+                if (conflicts.size() == 1) {
+                    result.put("message", conflicts.get(0).get("message").toString());
+                } else {
+                    StringBuilder summary = new StringBuilder(String.format("Multiple conflicts detected (%d conflicts): ", conflicts.size()));
+                    for (int i = 0; i < conflicts.size(); i++) {
+                        if (i > 0) summary.append("; ");
+                        summary.append(String.format("[%d] %s", i + 1, conflicts.get(i).get("message")));
+                    }
+                    result.put("message", summary.toString());
+                }
             } else {
                 result.put("message", "Data similarity check passed: No conflicts detected");
             }

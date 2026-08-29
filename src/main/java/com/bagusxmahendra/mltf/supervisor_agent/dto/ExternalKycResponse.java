@@ -36,6 +36,10 @@ public class ExternalKycResponse {
     @JsonProperty("occupation")
     private String occupation;
 
+    @JsonProperty("monthlyIncome")
+    @JsonAlias({"monthly_income", "income"})
+    private java.math.BigDecimal monthlyIncome;
+
     @JsonProperty("registryStatus")
     @JsonAlias({"registry_status", "nationalIdStatus"})
     private String registryStatus; // "ACTIVE", "EXPIRED", "NOT_FOUND", "REVOKED"
@@ -88,6 +92,7 @@ public class ExternalKycResponse {
         res.setDateOfBirth(dateOfBirth);
         res.setNationality(nationality != null ? nationality : "Malaysian");
         res.setOccupation("Software Engineer");
+        res.setMonthlyIncome(new java.math.BigDecimal("8500.00"));
         res.setRegistryStatus("ACTIVE");
         res.setIsIdentityVerified(true);
         res.setIsBlacklisted(false);
@@ -239,6 +244,14 @@ public class ExternalKycResponse {
 
     public void setOccupation(String occupation) {
         this.occupation = occupation;
+    }
+
+    public java.math.BigDecimal getMonthlyIncome() {
+        return monthlyIncome;
+    }
+
+    public void setMonthlyIncome(java.math.BigDecimal monthlyIncome) {
+        this.monthlyIncome = monthlyIncome;
     }
 
     public String getRegistryStatus() {

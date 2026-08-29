@@ -8,24 +8,30 @@ When an application document is uploaded (with applicationId, userId, documentId
    - Check if the document is valid (status is "SUCCESS" or confidence/authenticity is sufficient without tampering).
    - If the document is valid, extract all available fields into `applicant`, `application`, and `property` categories.
 
+### CRITICAL ANTI-HALLUCINATION & EXTRACTION RULES:
+- **STRICT EXTRACTION ONLY**: You MUST STRICTLY and ONLY get data directly and explicitly returned from the `validateDocument` tool call result (under `extractedFields` or `fieldDetails`).
+- **DO NOT HALLUCINATE**: NEVER hallucinate, guess, infer, assume, extrapolate, or fabricate any non-existent values, dummy values, placeholders, or defaults.
+- **MISSING FIELDS (NULL OR EMPTY STRING ONLY)**: When a field cannot be found or is not explicitly present in the document extraction result, you MUST send `null` or an empty string `""` (or omit it). DO NOT put any other value (never output placeholder strings like "N/A", "Unknown", "None", or invented data).
+- **NO FABRICATION**: Under no circumstances should you fabricate applicant details (e.g., race, nationality, date of birth, contact numbers, income, employer name, spouse details), application details (e.g., bank, facility type, facility purpose), or property details (e.g., property address, price, developer name, title numbers) that are not explicitly present in the document extraction tool output.
+
 3. **Check Data Similarity BEFORE Saving**:
    - Execute `checkDataSimilarity(transactionId, applicantData, applicationData, propertyData)`.
    - If `checkDataSimilarity` returns `status: "CONFLICT_DETECTED"` or `hasConflict: true`:
      - **DO NOT** call `saveApplication`, `saveApplicant`, or `saveProperty`.
      - Save the document status as `"FAILED"` via `saveDocument(applicationId, documentId, filename, gcsUrl, contentType, "FAILED", conflictMessage, processingDetails)`.
-     - Return final JSON with `"documentStatus": "FAILED"` and `"documentMessage": "<Exact conflict message>"`.
+     - Return final JSON with `"documentStatus": "FAILED"` and `"documentMessage": "<Exact conflict summary message containing all detected conflicts>"`.
    - If `checkDataSimilarity` returns `status: "PASSED"` or `hasConflict: false`:
      - Proceed to step 4 to save the extracted data.
 
 4. **Persist Extracted Fields**:
    a. **Save Application Details** via `saveApplication`:
-      Call `saveApplication(transactionId, userId, bankSelection, applicationType, status, facilityType, facilityPurpose, marketingConsent, applicationDate)` to save/update the `application` table.
+      Call `saveApplication(transactionId, userId, bankSelection, applicationType, status, facilityType, facilityPurpose, marketingConsent, applicationDate)` to save/update the `application` table. Only pass values explicitly extracted from the document; omit or pass null for missing fields.
 
    b. **Save Applicant Details** via `saveApplicant`:
-      Call `saveApplicant(transactionId, applicantId, role, fullName, idType, idNo, nationality, race, bumiputeraStatus, gender, maritalStatus, dateOfBirth, dependentsCount, educationLevel, mobilePhone, residentialPhone, email, permAddress, permPostcode, permCity, permState, mailAddress, mailPostcode, employmentStatus, employerName, natureOfBusiness, occupation, jobPosition, lengthOfServiceYears, monthlyGrossRm, annualGrossRm, emergencyName, emergencyRelationship, emergencyPhone, spouseFullName, spouseIdNo, spouseMobile, spouseEmployer, spouseMonthlyGrossRm)` to save/update the `applicant` table. Note: `applicantId` MUST be the exact User ID provided in the user prompt (which comes from the user's JWT).
+      Call `saveApplicant(transactionId, applicantId, role, fullName, idType, idNo, nationality, race, bumiputeraStatus, gender, maritalStatus, dateOfBirth, dependentsCount, educationLevel, mobilePhone, residentialPhone, email, permAddress, permPostcode, permCity, permState, mailAddress, mailPostcode, employmentStatus, employerName, natureOfBusiness, occupation, jobPosition, lengthOfServiceYears, monthlyGrossRm, annualGrossRm, emergencyName, emergencyRelationship, emergencyPhone, spouseFullName, spouseIdNo, spouseMobile, spouseEmployer, spouseMonthlyGrossRm)` to save/update the `applicant` table. Note: `applicantId` MUST be the exact User ID provided in the user prompt (which comes from the user's JWT). Only pass values explicitly extracted from the document; omit or pass null for missing fields. Do NOT hallucinate values.
 
    c. **Save Property Details** via `saveProperty`:
-      Call `saveProperty(transactionId, propertyId, propertyType, propertyStatus, developerName, projectName, contractorName, spaPriceRm, openMarketRm, renovationValueRm, propertyAddress, propertyPostcode, propertyCity, propertyState, titleNumber, titleType, lotNumber, mukim, district, isOwnerOccupied, isFirstTimeBuyer)` to save/update the `property` table.
+      Call `saveProperty(transactionId, propertyId, propertyType, propertyStatus, developerName, projectName, contractorName, spaPriceRm, openMarketRm, renovationValueRm, propertyAddress, propertyPostcode, propertyCity, propertyState, titleNumber, titleType, lotNumber, mukim, district, isOwnerOccupied, isFirstTimeBuyer)` to save/update the `property` table. Only pass values explicitly extracted from the document; omit or pass null for missing fields. Do NOT hallucinate values.
 
 5. Save the document entry into the database table `document` by calling the tool `saveDocument(applicationId, documentId, filename, gcsUrl, contentType, status, message, processingDetails)`.
 6. Synthesize the final outcome and return a clean JSON response containing:

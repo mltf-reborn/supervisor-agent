@@ -126,6 +126,57 @@ class LoanApplicationAgentServiceTest {
     }
 
     @Test
+    void processProgrammatically_whenMultipleConflictsDetected_shouldFailWithAllConflictsInSummary() {
+        Map<String, Object> docResult = new LinkedHashMap<>();
+        docResult.put("status", "SUCCESS");
+        docResult.put("message", "Processed successfully");
+        docResult.put("detectedDocumentType", "PAYSLIP");
+        docResult.put("extractedFields", Map.of(
+                "full_name", "Bagus Mahendra Wicaksono",
+                "id_no", "999999-99-9999",
+                "monthly_gross_rm", 5000.0
+        ));
+
+        String multiConflictMessage = "Multiple conflicts detected (3 conflicts): " +
+                "[1] Conflicting data for applicant field 'full_name': existing value 'John Doe' vs incoming value 'Bagus Mahendra Wicaksono' (similarity 18.2% is below threshold 80.0%); " +
+                "[2] Conflicting data for applicant field 'id_no': existing value '940822-10-5819' vs incoming value '999999-99-9999' (similarity 42.9% is below threshold 80.0%); " +
+                "[3] Conflicting data for applicant field 'monthly_gross_rm': existing value '10000.0' vs incoming value '5000.0' (similarity 50.0% is below threshold 80.0%)";
+
+        when(loanApplicationTools.validateDocument(eq("gs://bucket/doc.pdf"), eq("application/pdf"), any()))
+                .thenReturn(docResult);
+        when(loanApplicationTools.checkDataSimilarity(eq("TXN-1"), any(), any(), any()))
+                .thenReturn(Map.of(
+                        "status", "CONFLICT_DETECTED",
+                        "hasConflict", true,
+                        "conflictCount", 3,
+                        "message", multiConflictMessage
+                ));
+        when(loanApplicationTools.saveDocument(eq("TXN-1"), eq("DOC-1"), eq("doc.pdf"), eq("gs://bucket/doc.pdf"), eq("application/pdf"), eq("FAILED"), any(), any()))
+                .thenReturn(Map.of("status", "SUCCESS"));
+
+        StepVerifier.create(service.processProgrammatically(
+                "TXN-1",
+                "usr_1",
+                "DOC-1",
+                "doc.pdf",
+                "gs://bucket/doc.pdf",
+                "application/pdf"
+        ))
+        .assertNext(res -> {
+            assertNotNull(res);
+            assertEquals("doc.pdf", res.documentFilename());
+            assertEquals("DOC-1", res.documentId());
+            assertEquals("FAILED", res.documentStatus());
+            assertEquals(multiConflictMessage, res.documentMessage());
+        })
+        .verifyComplete();
+
+        verify(loanApplicationTools).checkDataSimilarity(eq("TXN-1"), any(), any(), any());
+        org.mockito.Mockito.verify(loanApplicationTools, org.mockito.Mockito.never()).saveApplicant(any(), any(), any());
+        verify(loanApplicationTools).saveDocument(eq("TXN-1"), eq("DOC-1"), eq("doc.pdf"), eq("gs://bucket/doc.pdf"), eq("application/pdf"), eq("FAILED"), eq(multiConflictMessage), any());
+    }
+
+    @Test
     void isFieldIgnored_shouldCentralizeAndIgnoreStandardMetadataFields() {
         // Status and lifecycle
         org.junit.jupiter.api.Assertions.assertTrue(properties.isFieldIgnored("status"));
