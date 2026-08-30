@@ -259,6 +259,36 @@ public class LoanApplicationController {
         }
     }
 
+    @PostMapping("/draft")
+    public Mono<Void> saveDraft(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
+            @org.springframework.web.bind.annotation.RequestBody Map<String, Object> payload
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            return loanApplicationService.saveApplicationDraft(
+                    applicationId,
+                    auth0JwtService.extractUserId(authHeader),
+                    payload
+            );
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+    }
+
     @PostMapping("/details")
     public Mono<Void> saveDetails(
             @RequestParam("applicationID") String applicationId,

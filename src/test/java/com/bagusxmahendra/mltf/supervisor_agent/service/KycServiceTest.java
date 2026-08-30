@@ -7,6 +7,7 @@ import com.bagusxmahendra.mltf.supervisor_agent.dto.SupervisorKycDecision;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycProfile;
 import com.bagusxmahendra.mltf.supervisor_agent.model.KycStatus;
 import com.bagusxmahendra.mltf.supervisor_agent.repository.KycRepository;
+import com.bagusxmahendra.mltf.supervisor_agent.service.AuditLogService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,11 +42,21 @@ class KycServiceTest {
     @Mock
     private KycSupervisorAgentService supervisorAgentService;
 
+    @Mock
+    private AuditLogService auditLogService;
+
     private KycService kycService;
 
     @BeforeEach
     void setUp() {
-        kycService = new KycService(kycRepository, storageService, supervisorAgentService);
+        kycService = new KycService(kycRepository, storageService, supervisorAgentService, auditLogService);
+        org.mockito.Mockito.lenient().when(auditLogService.logKycVerification(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        )).thenReturn(reactor.core.publisher.Mono.empty());
     }
 
     @Test

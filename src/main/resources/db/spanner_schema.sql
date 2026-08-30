@@ -138,7 +138,9 @@ CREATE TABLE applicant (
     spouse_id_no STRING(100),
     spouse_mobile STRING(20),
     spouse_employer STRING(150),
-    spouse_monthly_gross_rm NUMERIC
+    spouse_monthly_gross_rm NUMERIC,
+    other_commitments STRING(MAX),
+    close_relatives STRING(MAX)
 ) PRIMARY KEY (transaction_id, applicant_id),
   INTERLEAVE IN PARENT application ON DELETE CASCADE;
 

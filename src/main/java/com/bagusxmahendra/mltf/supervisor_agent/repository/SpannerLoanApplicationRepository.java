@@ -192,7 +192,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                     "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                     "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant WHERE transaction_id = @transactionId")
+                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant WHERE transaction_id = @transactionId")
                     .bind("transactionId").to(transactionId)
                     .build();
 
@@ -237,6 +237,8 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     applicantData.put("spouse_mobile", row.isNull("spouse_mobile") ? "" : row.getString("spouse_mobile"));
                     applicantData.put("spouse_employer", row.isNull("spouse_employer") ? "" : row.getString("spouse_employer"));
                     applicantData.put("spouse_monthly_gross_rm", row.isNull("spouse_monthly_gross_rm") ? null : row.getBigDecimal("spouse_monthly_gross_rm"));
+                    applicantData.put("other_commitments", row.isNull("other_commitments") ? "" : row.getString("other_commitments"));
+                    applicantData.put("close_relatives", row.isNull("close_relatives") ? "" : row.getString("close_relatives"));
                 }
             }
             result.put("applicant", applicantData);
@@ -366,7 +368,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                                 "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                                 "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                                 "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                                 "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                         .bind("transactionId").to(transactionId)
                         .bind("applicantId").to(applicantId)
@@ -430,6 +432,8 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile"));
                 setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
                 setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
+                setIfPresent(b, "other_commitments", extractString(applicantData, "other_commitments", "otherCommitments"));
+                setIfPresent(b, "close_relatives", extractString(applicantData, "close_relatives", "closeRelatives"));
 
                 mutations.add(b.build());
             }
@@ -632,7 +636,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                             "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                             "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                             "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                            "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                            "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                             "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                     .bind("transactionId").to(transactionId)
                     .bind("applicantId").to(resolvedApplicantId)
@@ -696,6 +700,8 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile"));
             setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
             setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
+                setIfPresent(b, "other_commitments", extractString(applicantData, "other_commitments", "otherCommitments"));
+                setIfPresent(b, "close_relatives", extractString(applicantData, "close_relatives", "closeRelatives"));
 
             log.info("Executing database mutation to update 'applicant' table for transaction: {}, applicantId: {}", transactionId, resolvedApplicantId);
             databaseClient.write(List.of(b.build()));
@@ -961,7 +967,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                                     "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                                     "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                                     "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                                     "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                             .bind("transactionId").to(transactionId)
                             .bind("applicantId").to(applicantId)
@@ -974,7 +980,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                                     "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                                     "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                                     "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                                     "WHERE transaction_id = @transactionId LIMIT 1")
                             .bind("transactionId").to(transactionId)
                             .build();

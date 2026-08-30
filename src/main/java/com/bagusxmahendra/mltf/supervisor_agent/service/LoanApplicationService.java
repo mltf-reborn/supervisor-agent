@@ -102,6 +102,27 @@ public class LoanApplicationService {
                 )));
     }
 
+    public Mono<Void> saveApplicationDraft(String transactionId, String userId, Map<String, Object> payload) {
+        if (transactionId == null || transactionId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application ID is required"));
+        }
+        if (userId == null || userId.isBlank()) {
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User ID is required"));
+        }
+        
+        @SuppressWarnings("unchecked")
+        Map<String, Object> applicantData = (Map<String, Object>) payload.getOrDefault("applicant", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> applicationData = (Map<String, Object>) payload.getOrDefault("application", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> propertyData = (Map<String, Object>) payload.getOrDefault("property", java.util.Collections.emptyMap());
+
+        Map<String, Object> mutableAppData = new java.util.HashMap<>(applicationData);
+        mutableAppData.put("status", "NEW");
+
+        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), applicantData, mutableAppData, propertyData);
+    }
+
     public Mono<Void> saveApplicationDetails(String transactionId, String userId, Map<String, Object> payload) {
         if (transactionId == null || transactionId.isBlank()) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application ID is required"));

@@ -305,7 +305,7 @@ public class LoanApplicationAgentService {
                 "monthlyincome", "annualgrossrm", "annual_gross_rm", "emergencyname", "emergency_name",
                 "emergencyrelationship", "emergency_relationship", "emergencyphone", "emergency_phone",
                 "spousefullname", "spouse_full_name", "spouseidno", "spouse_id_no", "spousemobile",
-                "spouse_mobile", "spouseemployer", "spouse_employer", "spousemonthlygrossrm", "spouse_monthly_gross_rm"
+                "spouse_mobile", "spouseemployer", "spouse_employer", "spousemonthlygrossrm", "spouse_monthly_gross_rm", "othercommitments", "other_commitments", "closerelatives", "close_relatives"
         );
 
         // Known application fields

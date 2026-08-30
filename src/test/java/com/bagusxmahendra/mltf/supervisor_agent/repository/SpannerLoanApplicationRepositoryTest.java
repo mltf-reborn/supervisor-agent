@@ -102,6 +102,8 @@ class SpannerLoanApplicationRepositoryTest {
         when(appStruct.isNull("spouse_mobile")).thenReturn(true);
         when(appStruct.isNull("spouse_employer")).thenReturn(true);
         when(appStruct.isNull("spouse_monthly_gross_rm")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(appStruct.isNull("other_commitments")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(appStruct.isNull("close_relatives")).thenReturn(true);
 
         // Property fields
         when(appStruct.isNull("property_type")).thenReturn(true);
@@ -197,6 +199,8 @@ class SpannerLoanApplicationRepositoryTest {
         when(applicantStruct.isNull("spouse_mobile")).thenReturn(true);
         when(applicantStruct.isNull("spouse_employer")).thenReturn(true);
         when(applicantStruct.isNull("spouse_monthly_gross_rm")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(applicantStruct.isNull("other_commitments")).thenReturn(true);
+        org.mockito.Mockito.lenient().when(applicantStruct.isNull("close_relatives")).thenReturn(true);
 
         Map<String, Object> applicantData = Map.of(
                 "full_name", "Bagus Wicaksono",
