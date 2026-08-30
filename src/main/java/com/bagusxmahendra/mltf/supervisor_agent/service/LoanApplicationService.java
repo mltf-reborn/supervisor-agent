@@ -116,11 +116,19 @@ public class LoanApplicationService {
         Map<String, Object> applicationData = (Map<String, Object>) payload.getOrDefault("application", java.util.Collections.emptyMap());
         @SuppressWarnings("unchecked")
         Map<String, Object> propertyData = (Map<String, Object>) payload.getOrDefault("property", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> jointApplicantData = (Map<String, Object>) payload.getOrDefault("joint_applicant", 
+                payload.getOrDefault("jointApplicant", java.util.Collections.emptyMap()));
+
+        Map<String, Object> mutableApplicantData = new java.util.HashMap<>(applicantData);
+        if (jointApplicantData != null && !jointApplicantData.isEmpty()) {
+            mutableApplicantData.put("joint_applicant", jointApplicantData);
+        }
 
         Map<String, Object> mutableAppData = new java.util.HashMap<>(applicationData);
         mutableAppData.put("status", "NEW");
 
-        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), applicantData, mutableAppData, propertyData);
+        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), mutableApplicantData, mutableAppData, propertyData);
     }
 
     public Mono<Void> saveApplicationDetails(String transactionId, String userId, Map<String, Object> payload) {
@@ -137,11 +145,19 @@ public class LoanApplicationService {
         Map<String, Object> applicationData = (Map<String, Object>) payload.getOrDefault("application", java.util.Collections.emptyMap());
         @SuppressWarnings("unchecked")
         Map<String, Object> propertyData = (Map<String, Object>) payload.getOrDefault("property", java.util.Collections.emptyMap());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> jointApplicantData = (Map<String, Object>) payload.getOrDefault("joint_applicant", 
+                payload.getOrDefault("jointApplicant", java.util.Collections.emptyMap()));
+
+        Map<String, Object> mutableApplicantData = new java.util.HashMap<>(applicantData);
+        if (jointApplicantData != null && !jointApplicantData.isEmpty()) {
+            mutableApplicantData.put("joint_applicant", jointApplicantData);
+        }
 
         Map<String, Object> mutableAppData = new java.util.HashMap<>(applicationData);
         mutableAppData.put("status", "SUBMITTED");
 
-        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), applicantData, mutableAppData, propertyData);
+        return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), mutableApplicantData, mutableAppData, propertyData);
     }
 
     public Mono<Void> deleteApplication(String transactionId, String userId) {
