@@ -77,6 +77,11 @@ public class SupervisorAgentProperties {
     private double similarityThreshold = 0.80;
 
     /**
+     * Flag whether to enable similarity checks (default: true).
+     */
+    private boolean similarityCheckEnabled = true;
+
+    /**
      * Set of field names to ignore during data similarity and conflict detection.
      * Defaults to metadata, lifecycle statuses, timestamps, and primary/foreign keys.
      */
@@ -195,6 +200,14 @@ public class SupervisorAgentProperties {
 
     public void setSimilarityThreshold(double similarityThreshold) {
         this.similarityThreshold = similarityThreshold;
+    }
+
+    public boolean isSimilarityCheckEnabled() {
+        return similarityCheckEnabled;
+    }
+
+    public void setSimilarityCheckEnabled(boolean similarityCheckEnabled) {
+        this.similarityCheckEnabled = similarityCheckEnabled;
     }
 
     public Set<String> getSimilarityIgnoredFields() {

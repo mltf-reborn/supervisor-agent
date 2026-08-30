@@ -993,6 +993,9 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     private void validateSimilarity(String table, String field, Object existingVal, Object incomingVal, List<String> conflicts) {
+        if (!this.properties.isSimilarityCheckEnabled()) {
+            return;
+        }
         if (this.properties.isFieldIgnored(field)) {
             return;
         }
@@ -1241,6 +1244,9 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             List<Map<String, Object>> conflicts,
             List<Map<String, Object>> matches
     ) {
+        if (!this.properties.isSimilarityCheckEnabled()) {
+            return;
+        }
         if (this.properties.isFieldIgnored(field, customIgnored)) {
             return;
         }
