@@ -310,7 +310,9 @@ class SpannerLoanApplicationRepositoryTest {
                 "bank_selection", "Maybank",
                 "application_type", "HOME_LOAN"
         );
-        Map<String, Object> propertyData = Map.of();
+        Map<String, Object> propertyData = Map.of(
+                "spa_price_rm", 650000.0
+        );
 
         StepVerifier.create(disabledRepo.checkSimilarity("TXN-1", applicantData, applicationData, propertyData))
                 .assertNext(result -> {
