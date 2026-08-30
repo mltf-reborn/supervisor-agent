@@ -42,7 +42,23 @@ CREATE INDEX idx_kyc_profile_status ON kyc_profile(status);
 CREATE INDEX idx_kyc_profile_id_card_number ON kyc_profile(id_card_number);
 
 -- ----------------------------------------------------------------------------
--- 2. Application (all loan/facility related data)
+-- 2. Audit Log (KYC and other process logging)
+-- ----------------------------------------------------------------------------
+CREATE TABLE audit_log (
+    processing_date TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    type STRING(32) NOT NULL,
+    reference_id STRING(64) NOT NULL,
+    subject STRING(1000),
+    description STRING(MAX),
+    status STRING(32) NOT NULL
+) PRIMARY KEY (reference_id);
+
+CREATE INDEX idx_audit_log_type ON audit_log(type);
+CREATE INDEX idx_audit_log_status ON audit_log(status);
+CREATE INDEX idx_audit_log_processing_date ON audit_log(processing_date);
+
+-- ----------------------------------------------------------------------------
+-- 3. Application (all loan/facility related data)
 -- The transaction_id is the stable key for the complete application journey.
 -- ----------------------------------------------------------------------------
 CREATE TABLE application (
