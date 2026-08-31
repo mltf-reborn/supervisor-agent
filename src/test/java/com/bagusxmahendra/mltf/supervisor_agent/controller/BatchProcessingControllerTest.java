@@ -62,7 +62,8 @@ class BatchProcessingControllerTest {
                 "APPROVED",
                 "Application verified and approved successfully",
                 null,
-                List.of(new BatchDocumentItemResponse("DOC-1", "payslip.pdf", "SUCCESS", "Document verified successfully"))
+                List.of(new BatchDocumentItemResponse("DOC-1", "payslip.pdf", "SUCCESS", "Document verified successfully")),
+                new com.bagusxmahendra.mltf.supervisor_agent.dto.GraphAnalysisResult("APPROVED", "SALARY_TRIANGULATION", true, List.of())
         );
         BatchProcessResponse response = new BatchProcessResponse(
                 "SUCCESS",
@@ -86,7 +87,10 @@ class BatchProcessingControllerTest {
                 .jsonPath("$.results[0].previousStatus").isEqualTo("SUBMITTED")
                 .jsonPath("$.results[0].finalStatus").isEqualTo("APPROVED")
                 .jsonPath("$.results[0].documents[0].filename").isEqualTo("payslip.pdf")
-                .jsonPath("$.results[0].documents[0].status").isEqualTo("SUCCESS");
+                .jsonPath("$.results[0].documents[0].status").isEqualTo("SUCCESS")
+                .jsonPath("$.results[0].graphAnalysis.status").isEqualTo("APPROVED")
+                .jsonPath("$.results[0].graphAnalysis.checkName").isEqualTo("SALARY_TRIANGULATION")
+                .jsonPath("$.results[0].graphAnalysis.passed").isEqualTo(true);
 
         verify(batchProcessingService).processSubmittedApplications();
     }

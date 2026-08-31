@@ -77,8 +77,12 @@ CREATE TABLE application (
     ftfc_category STRING(MAX),
     signatures STRING(MAX),
     application_date DATE,
+    ai_analysis STRING(MAX),
     created_at TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)
 ) PRIMARY KEY (transaction_id);
+
+-- Migration DDL for existing database instances:
+-- ALTER TABLE application ADD COLUMN ai_analysis STRING(MAX);
 
 CREATE INDEX idx_application_user_id ON application(user_id);
 

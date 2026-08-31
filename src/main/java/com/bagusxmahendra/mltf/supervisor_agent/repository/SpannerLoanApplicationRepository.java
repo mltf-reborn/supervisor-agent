@@ -163,7 +163,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             Statement appStatement = Statement.newBuilder(
                     "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
                     "facilities_required, refinancing_bank, joint_relationship, marketing_consent, docs_enclosed, " +
-                    "ftfc_category, signatures, application_date FROM application WHERE transaction_id = @transactionId AND user_id = @userId")
+                    "ftfc_category, signatures, application_date, ai_analysis FROM application WHERE transaction_id = @transactionId AND user_id = @userId")
                     .bind("transactionId").to(transactionId)
                     .bind("userId").to(userId)
                     .build();
@@ -185,6 +185,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     appData.put("ftfc_category", row.isNull("ftfc_category") ? "" : row.getString("ftfc_category"));
                     appData.put("signatures", row.isNull("signatures") ? "" : row.getString("signatures"));
                     appData.put("application_date", row.isNull("application_date") ? "" : row.getDate("application_date").toString());
+                    appData.put("ai_analysis", row.isNull("ai_analysis") ? "" : row.getString("ai_analysis"));
                 } else {
                     return null; // Not found or not authorized
                 }
@@ -866,6 +867,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         setIfPresent(b, "ftfc_category", extractString(applicationData, "ftfc_category", "ftfcCategory"));
         setIfPresent(b, "signatures", extractString(applicationData, "signatures"));
         setIfPresent(b, "application_date", extractDate(applicationData, "application_date", "applicationDate"));
+        setIfPresent(b, "ai_analysis", extractString(applicationData, "ai_analysis", "aiAnalysis"));
 
         return b.build();
     }
@@ -1575,12 +1577,19 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
     @Override
     public Mono<Void> updateStatus(String transactionId, String status) {
+        return updateStatusAndAiAnalysis(transactionId, status, null);
+    }
+
+    @Override
+    public Mono<Void> updateStatusAndAiAnalysis(String transactionId, String status, String aiAnalysis) {
         return Mono.fromRunnable(() -> {
-            Mutation mutation = Mutation.newUpdateBuilder("application")
+            Mutation.WriteBuilder builder = Mutation.newUpdateBuilder("application")
                     .set("transaction_id").to(transactionId)
-                    .set("status").to(status)
-                    .build();
-            databaseClient.write(List.of(mutation));
+                    .set("status").to(status);
+            if (aiAnalysis != null) {
+                builder.set("ai_analysis").to(aiAnalysis);
+            }
+            databaseClient.write(List.of(builder.build()));
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 }

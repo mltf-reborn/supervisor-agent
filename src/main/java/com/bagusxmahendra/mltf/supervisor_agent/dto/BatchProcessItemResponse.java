@@ -14,6 +14,7 @@ public class BatchProcessItemResponse {
     private String message;
     private String caseId;
     private List<BatchDocumentItemResponse> documents;
+    private GraphAnalysisResult graphAnalysis;
 
     public BatchProcessItemResponse() {
     }
@@ -27,6 +28,19 @@ public class BatchProcessItemResponse {
             String caseId,
             List<BatchDocumentItemResponse> documents
     ) {
+        this(transactionId, userId, previousStatus, finalStatus, message, caseId, documents, null);
+    }
+
+    public BatchProcessItemResponse(
+            String transactionId,
+            String userId,
+            String previousStatus,
+            String finalStatus,
+            String message,
+            String caseId,
+            List<BatchDocumentItemResponse> documents,
+            GraphAnalysisResult graphAnalysis
+    ) {
         this.transactionId = transactionId;
         this.userId = userId;
         this.previousStatus = previousStatus;
@@ -34,6 +48,7 @@ public class BatchProcessItemResponse {
         this.message = message;
         this.caseId = caseId;
         this.documents = documents;
+        this.graphAnalysis = graphAnalysis;
     }
 
     public String getTransactionId() {
@@ -90,5 +105,13 @@ public class BatchProcessItemResponse {
 
     public void setDocuments(List<BatchDocumentItemResponse> documents) {
         this.documents = documents;
+    }
+
+    public GraphAnalysisResult getGraphAnalysis() {
+        return graphAnalysis;
+    }
+
+    public void setGraphAnalysis(GraphAnalysisResult graphAnalysis) {
+        this.graphAnalysis = graphAnalysis;
     }
 }

@@ -356,5 +356,14 @@ class SpannerLoanApplicationRepositoryTest {
 
         verify(databaseClient).write(any());
     }
+
+    @Test
+    void updateStatusAndAiAnalysis_shouldWriteMutationWithAiAnalysis() {
+        String aiJson = "{\"graphAnalysis\":{\"status\":\"APPROVED\"},\"documents\":[]}";
+        StepVerifier.create(repository.updateStatusAndAiAnalysis("TXN-101", "APPROVED", aiJson))
+                .verifyComplete();
+
+        verify(databaseClient).write(any());
+    }
 }
 

@@ -61,6 +61,11 @@ public class SupervisorAgentProperties {
     private String caseManagementUrl = "http://localhost:8082";
 
     /**
+     * Base URL for Graph Processing Agent (/api/v1/graph/analysis).
+     */
+    private String graphProcessingUrl = "http://localhost:8083";
+
+    /**
      * Threshold for automated KYC Approval (default: 85.0%).
      */
     private double approvedThreshold = 85.0;
@@ -176,6 +181,14 @@ public class SupervisorAgentProperties {
 
     public void setCaseManagementUrl(String caseManagementUrl) {
         this.caseManagementUrl = caseManagementUrl;
+    }
+
+    public String getGraphProcessingUrl() {
+        return graphProcessingUrl;
+    }
+
+    public void setGraphProcessingUrl(String graphProcessingUrl) {
+        this.graphProcessingUrl = graphProcessingUrl;
     }
 
     public double getApprovedThreshold() {
