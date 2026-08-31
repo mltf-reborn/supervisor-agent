@@ -10,6 +10,8 @@ import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.Value;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +35,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
     private final DatabaseClient databaseClient;
     private final SupervisorAgentProperties properties;
+    private final ObjectMapper objectMapper;
     private double similarityThreshold = 0.80;
 
     @Autowired
@@ -40,8 +43,21 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             DatabaseClient databaseClient,
             SupervisorAgentProperties properties
     ) {
+        this(databaseClient, properties, new ObjectMapper()
+                .findAndRegisterModules()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false));
+    }
+
+    public SpannerLoanApplicationRepository(
+            DatabaseClient databaseClient,
+            SupervisorAgentProperties properties,
+            ObjectMapper objectMapper
+    ) {
         this.databaseClient = databaseClient;
         this.properties = properties != null ? properties : new SupervisorAgentProperties();
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper()
+                .findAndRegisterModules()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         if (this.properties.getSimilarityThreshold() > 0) {
             this.similarityThreshold = this.properties.getSimilarityThreshold();
         }
@@ -1572,6 +1588,167 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 }
             }
             return list;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<List<Map<String, Object>>> findAllApplicationDetails() {
+        return Mono.fromCallable(() -> {
+            Statement appStatement = Statement.newBuilder(
+                    "SELECT transaction_id, user_id, bank_selection, application_type, status, facility_type, facility_purpose, " +
+                    "facilities_required, refinancing_bank, joint_relationship, marketing_consent, docs_enclosed, " +
+                    "ftfc_category, signatures, application_date, ai_analysis, created_at FROM application ORDER BY created_at DESC")
+                    .build();
+
+            List<Map<String, Object>> resultList = new ArrayList<>();
+            List<String> transactionIds = new ArrayList<>();
+
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(appStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    transactionIds.add(txnId);
+
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("transaction_id", txnId);
+                    item.put("user_id", row.getString("user_id"));
+                    if (!row.isNull("created_at")) {
+                        item.put("created_at", row.getTimestamp("created_at").toString());
+                    }
+
+                    Map<String, Object> appData = new LinkedHashMap<>();
+                    appData.put("transaction_id", txnId);
+                    appData.put("user_id", row.getString("user_id"));
+                    appData.put("bank_selection", row.isNull("bank_selection") ? "" : row.getString("bank_selection"));
+                    appData.put("application_type", row.isNull("application_type") ? "" : row.getString("application_type"));
+                    appData.put("status", row.isNull("status") ? "" : row.getString("status"));
+                    appData.put("facility_type", row.isNull("facility_type") ? "" : row.getString("facility_type"));
+                    appData.put("facility_purpose", row.isNull("facility_purpose") ? "" : row.getString("facility_purpose"));
+                    appData.put("facilities_required", row.isNull("facilities_required") ? "" : row.getString("facilities_required"));
+                    appData.put("refinancing_bank", row.isNull("refinancing_bank") ? "" : row.getString("refinancing_bank"));
+                    appData.put("joint_relationship", row.isNull("joint_relationship") ? "" : row.getString("joint_relationship"));
+                    appData.put("marketing_consent", row.isNull("marketing_consent") ? "" : row.getString("marketing_consent"));
+                    appData.put("docs_enclosed", row.isNull("docs_enclosed") ? "" : row.getString("docs_enclosed"));
+                    appData.put("ftfc_category", row.isNull("ftfc_category") ? "" : row.getString("ftfc_category"));
+                    appData.put("signatures", row.isNull("signatures") ? "" : row.getString("signatures"));
+                    appData.put("application_date", row.isNull("application_date") ? "" : row.getDate("application_date").toString());
+                    appData.put("ai_analysis", row.isNull("ai_analysis") ? "" : row.getString("ai_analysis"));
+                    item.put("application", appData);
+
+                    resultList.add(item);
+                }
+            }
+
+            if (resultList.isEmpty()) {
+                return resultList;
+            }
+
+            // Fetch applicants for all transactions
+            Statement applicantStatement = Statement.newBuilder(
+                    "SELECT transaction_id, role, salutation, full_name, id_type, id_no, other_id_type, nationality, race, " +
+                    "country_of_origin, bumiputera_status, gender, marital_status, date_of_birth, age, " +
+                    "dependents_count, schooling_children_count, education_level, resident_type, mobile_phone, " +
+                    "residential_phone, email, residence_type, perm_address, perm_address_line2, perm_postcode, " +
+                    "perm_city, perm_state, perm_country, length_of_stay_years, length_of_stay_months, mail_address, " +
+                    "mail_address_line2, mail_postcode, mail_city, mail_state, mail_country, employment_status, " +
+                    "employer_name, employer_address, employer_address_line2, employer_postcode, employer_city, " +
+                    "employer_state, employer_country, office_phone, direct_line, email_work, nature_of_business, " +
+                    "nature_of_business_specify, occupation, job_position, date_joined, length_of_service_years, " +
+                    "length_of_service_months, prev_employment_status, prev_employer_name, prev_nature_of_business, " +
+                    "prev_occupation, prev_position, prev_phone, prev_service_years, prev_service_months, " +
+                    "monthly_gross_rm, other_monthly_income_rm, annual_gross_rm, other_annual_income_rm, " +
+                    "emergency_name, emergency_relationship, emergency_phone, emergency_phone_home, emergency_email, " +
+                    "spouse_salutation, spouse_full_name, spouse_id_type, spouse_id_no, spouse_other_id_type, " +
+                    "spouse_nationality, spouse_race, spouse_country_of_origin, spouse_bumiputera_status, " +
+                    "spouse_gender, spouse_date_of_birth, spouse_age, spouse_mobile, spouse_residential_phone, " +
+                    "spouse_email, spouse_employer, spouse_nature_of_business, spouse_occupation, spouse_position, " +
+                    "spouse_general_line, spouse_service_years, spouse_monthly_gross_rm, spouse_annual_gross_rm, " +
+                    "other_commitments, close_relatives, close_relations_staff, close_relations_relative " +
+                    "FROM applicant")
+                    .build();
+
+            Map<String, Map<String, Object>> primaryApplicants = new LinkedHashMap<>();
+            Map<String, Map<String, Object>> jointApplicants = new LinkedHashMap<>();
+
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(applicantStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> appMap = mapApplicantStruct(row);
+                    String role = row.isNull("role") ? "Primary" : row.getString("role");
+
+                    if ("Joint".equalsIgnoreCase(role)) {
+                        jointApplicants.put(txnId, appMap);
+                    } else if (!primaryApplicants.containsKey(txnId)) {
+                        primaryApplicants.put(txnId, appMap);
+                    }
+                }
+            }
+
+            // Fetch property for all transactions
+            Statement propertyStatement = Statement.newBuilder(
+                    "SELECT transaction_id, property_type, property_sub_type, property_status, construction_stage, developer_name, " +
+                    "project_name, relationship_to_developer, phase_code, contractor_name, spa_price_rm, open_market_rm, " +
+                    "renovation_value_rm, property_address, property_address_line2, property_postcode, property_city, " +
+                    "property_state, property_country, title_number, title_type, lot_number, mukim, district, " +
+                    "state_geran, is_owner_occupied, is_first_time_buyer, gross_purchase_price_rm, discount_rm, " +
+                    "rebate_rm, adjustment_rm, developer_benefits_rm, net_purchase_price_rm " +
+                    "FROM property")
+                    .build();
+
+            Map<String, Map<String, Object>> properties = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(propertyStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> propMap = new LinkedHashMap<>();
+                    propMap.put("property_type", row.isNull("property_type") ? "" : row.getString("property_type"));
+                    propMap.put("property_sub_type", row.isNull("property_sub_type") ? "" : row.getString("property_sub_type"));
+                    propMap.put("property_status", row.isNull("property_status") ? "" : row.getString("property_status"));
+                    propMap.put("construction_stage", row.isNull("construction_stage") ? "" : row.getString("construction_stage"));
+                    propMap.put("developer_name", row.isNull("developer_name") ? "" : row.getString("developer_name"));
+                    propMap.put("project_name", row.isNull("project_name") ? "" : row.getString("project_name"));
+                    propMap.put("relationship_to_developer", row.isNull("relationship_to_developer") ? "" : row.getString("relationship_to_developer"));
+                    propMap.put("phase_code", row.isNull("phase_code") ? "" : row.getString("phase_code"));
+                    propMap.put("contractor_name", row.isNull("contractor_name") ? "" : row.getString("contractor_name"));
+                    propMap.put("spa_price_rm", row.isNull("spa_price_rm") ? null : row.getBigDecimal("spa_price_rm"));
+                    propMap.put("open_market_rm", row.isNull("open_market_rm") ? null : row.getBigDecimal("open_market_rm"));
+                    propMap.put("renovation_value_rm", row.isNull("renovation_value_rm") ? null : row.getBigDecimal("renovation_value_rm"));
+                    propMap.put("property_address", row.isNull("property_address") ? "" : row.getString("property_address"));
+                    propMap.put("property_address_line2", row.isNull("property_address_line2") ? "" : row.getString("property_address_line2"));
+                    propMap.put("property_postcode", row.isNull("property_postcode") ? "" : row.getString("property_postcode"));
+                    propMap.put("property_city", row.isNull("property_city") ? "" : row.getString("property_city"));
+                    propMap.put("property_state", row.isNull("property_state") ? "" : row.getString("property_state"));
+                    propMap.put("property_country", row.isNull("property_country") ? "" : row.getString("property_country"));
+                    propMap.put("title_number", row.isNull("title_number") ? "" : row.getString("title_number"));
+                    propMap.put("title_type", row.isNull("title_type") ? "" : row.getString("title_type"));
+                    propMap.put("lot_number", row.isNull("lot_number") ? "" : row.getString("lot_number"));
+                    propMap.put("mukim", row.isNull("mukim") ? "" : row.getString("mukim"));
+                    propMap.put("district", row.isNull("district") ? "" : row.getString("district"));
+                    propMap.put("state_geran", row.isNull("state_geran") ? "" : row.getString("state_geran"));
+                    propMap.put("is_owner_occupied", row.isNull("is_owner_occupied") ? null : row.getBoolean("is_owner_occupied"));
+                    propMap.put("is_first_time_buyer", row.isNull("is_first_time_buyer") ? null : row.getBoolean("is_first_time_buyer"));
+                    propMap.put("gross_purchase_price_rm", row.isNull("gross_purchase_price_rm") ? null : row.getBigDecimal("gross_purchase_price_rm"));
+                    propMap.put("discount_rm", row.isNull("discount_rm") ? null : row.getBigDecimal("discount_rm"));
+                    propMap.put("rebate_rm", row.isNull("rebate_rm") ? null : row.getBigDecimal("rebate_rm"));
+                    propMap.put("adjustment_rm", row.isNull("adjustment_rm") ? null : row.getBigDecimal("adjustment_rm"));
+                    propMap.put("developer_benefits_rm", row.isNull("developer_benefits_rm") ? null : row.getBigDecimal("developer_benefits_rm"));
+                    propMap.put("net_purchase_price_rm", row.isNull("net_purchase_price_rm") ? null : row.getBigDecimal("net_purchase_price_rm"));
+                    properties.put(txnId, propMap);
+                }
+            }
+
+            // Combine into unified item structure (application, applicant, property)
+            for (Map<String, Object> item : resultList) {
+                String txnId = (String) item.get("transaction_id");
+                item.put("applicant", primaryApplicants.getOrDefault(txnId, new LinkedHashMap<>()));
+                if (jointApplicants.containsKey(txnId)) {
+                    item.put("joint_applicant", jointApplicants.get(txnId));
+                }
+                item.put("property", properties.getOrDefault(txnId, new LinkedHashMap<>()));
+            }
+
+            return resultList;
         }).subscribeOn(Schedulers.boundedElastic());
     }
 

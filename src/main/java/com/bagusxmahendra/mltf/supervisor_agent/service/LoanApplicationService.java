@@ -160,6 +160,10 @@ public class LoanApplicationService {
         return loanApplicationRepository.updateApplicationData(transactionId.trim(), userId.trim(), mutableApplicantData, mutableAppData, propertyData);
     }
 
+    public Mono<List<Map<String, Object>>> getAllLoanApplications() {
+        return loanApplicationRepository.findAllApplicationDetails();
+    }
+
     public Mono<Void> deleteApplication(String transactionId, String userId) {
         if (transactionId == null || transactionId.isBlank()) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Application reference number is required"));

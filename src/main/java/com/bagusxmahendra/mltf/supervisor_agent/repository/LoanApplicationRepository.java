@@ -54,6 +54,8 @@ public interface LoanApplicationRepository {
 
     Mono<List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication>> findApplicationsByStatus(String status);
 
+    Mono<List<Map<String, Object>>> findAllApplicationDetails();
+
     Mono<Void> updateStatus(String transactionId, String status);
 
     Mono<Void> updateStatusAndAiAnalysis(String transactionId, String status, String aiAnalysis);

@@ -125,6 +125,15 @@ public class LoanApplicationController {
         }
     }
 
+    /**
+     * Get all loan applications with entities (application, applicant, property)
+     * for Ops Underwriting Dashboard.
+     */
+    @org.springframework.web.bind.annotation.GetMapping("/all")
+    public Mono<List<Map<String, Object>>> getAllApplicationsForOps() {
+        return loanApplicationService.getAllLoanApplications();
+    }
+
     @org.springframework.web.bind.annotation.GetMapping("/edit")
     public Mono<ApplicationInquiryResponse> inquiry(
             @RequestParam("applicationID") String applicationId,
