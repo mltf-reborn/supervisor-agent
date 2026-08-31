@@ -1738,7 +1738,34 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 }
             }
 
-            // Combine into unified item structure (application, applicant, property)
+            // Fetch documents for all transactions
+            Statement documentStatement = Statement.newBuilder(
+                    "SELECT transaction_id, document_id, document_filename, gcs_url, content_type, " +
+                    "document_status, document_message, document_processing_details, created_at " +
+                    "FROM document ORDER BY created_at ASC")
+                    .build();
+
+            Map<String, List<Map<String, Object>>> documentsByTxn = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(documentStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> docMap = new LinkedHashMap<>();
+                    docMap.put("document_id", row.isNull("document_id") ? "" : row.getString("document_id"));
+                    docMap.put("document_filename", row.isNull("document_filename") ? "" : row.getString("document_filename"));
+                    docMap.put("gcs_url", row.isNull("gcs_url") ? "" : row.getString("gcs_url"));
+                    docMap.put("content_type", row.isNull("content_type") ? "" : row.getString("content_type"));
+                    docMap.put("document_status", row.isNull("document_status") ? "" : row.getString("document_status"));
+                    docMap.put("document_message", row.isNull("document_message") ? "" : row.getString("document_message"));
+                    docMap.put("document_processing_details", row.isNull("document_processing_details") ? "" : row.getString("document_processing_details"));
+                    if (!row.isNull("created_at")) {
+                        docMap.put("created_at", row.getTimestamp("created_at").toString());
+                    }
+                    documentsByTxn.computeIfAbsent(txnId, k -> new ArrayList<>()).add(docMap);
+                }
+            }
+
+            // Combine into unified item structure (application, applicant, property, documents)
             for (Map<String, Object> item : resultList) {
                 String txnId = (String) item.get("transaction_id");
                 item.put("applicant", primaryApplicants.getOrDefault(txnId, new LinkedHashMap<>()));
@@ -1746,6 +1773,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     item.put("joint_applicant", jointApplicants.get(txnId));
                 }
                 item.put("property", properties.getOrDefault(txnId, new LinkedHashMap<>()));
+                item.put("documents", documentsByTxn.getOrDefault(txnId, new ArrayList<>()));
             }
 
             return resultList;

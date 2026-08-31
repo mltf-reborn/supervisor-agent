@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.test.StepVerifier;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -364,6 +365,88 @@ class SpannerLoanApplicationRepositoryTest {
                 .verifyComplete();
 
         verify(databaseClient).write(any());
+    }
+
+    @Test
+    void findAllApplicationDetails_shouldReturnApplicationsWithDocumentsAndProcessingDetails() {
+        ResultSet appRs = mock(ResultSet.class);
+        ResultSet applicantRs = mock(ResultSet.class);
+        ResultSet propertyRs = mock(ResultSet.class);
+        ResultSet docRs = mock(ResultSet.class);
+
+        when(databaseClient.singleUse()).thenReturn(readContext);
+        when(readContext.executeQuery(any(Statement.class)))
+                .thenReturn(appRs, applicantRs, propertyRs, docRs);
+
+        // App row
+        Struct appStruct = mock(Struct.class);
+        when(appRs.next()).thenReturn(true, false);
+        when(appRs.getCurrentRowAsStruct()).thenReturn(appStruct);
+        when(appStruct.getString("transaction_id")).thenReturn("TXN-101");
+        when(appStruct.getString("user_id")).thenReturn("usr_101");
+        when(appStruct.isNull("created_at")).thenReturn(true);
+        when(appStruct.isNull("bank_selection")).thenReturn(false);
+        when(appStruct.getString("bank_selection")).thenReturn("Maybank");
+        when(appStruct.isNull("application_type")).thenReturn(false);
+        when(appStruct.getString("application_type")).thenReturn("HOME_LOAN");
+        when(appStruct.isNull("status")).thenReturn(false);
+        when(appStruct.getString("status")).thenReturn("SUBMITTED");
+        when(appStruct.isNull("facility_type")).thenReturn(true);
+        when(appStruct.isNull("facility_purpose")).thenReturn(true);
+        when(appStruct.isNull("facilities_required")).thenReturn(true);
+        when(appStruct.isNull("refinancing_bank")).thenReturn(true);
+        when(appStruct.isNull("joint_relationship")).thenReturn(true);
+        when(appStruct.isNull("marketing_consent")).thenReturn(true);
+        when(appStruct.isNull("docs_enclosed")).thenReturn(true);
+        when(appStruct.isNull("ftfc_category")).thenReturn(true);
+        when(appStruct.isNull("signatures")).thenReturn(true);
+        when(appStruct.isNull("application_date")).thenReturn(true);
+        when(appStruct.isNull("ai_analysis")).thenReturn(true);
+
+        // Applicant rows (empty)
+        when(applicantRs.next()).thenReturn(false);
+
+        // Property rows (empty)
+        when(propertyRs.next()).thenReturn(false);
+
+        // Document row
+        Struct docStruct = mock(Struct.class);
+        when(docRs.next()).thenReturn(true, false);
+        when(docRs.getCurrentRowAsStruct()).thenReturn(docStruct);
+        when(docStruct.getString("transaction_id")).thenReturn("TXN-101");
+        when(docStruct.isNull("document_id")).thenReturn(false);
+        when(docStruct.getString("document_id")).thenReturn("DOC-999");
+        when(docStruct.isNull("document_filename")).thenReturn(false);
+        when(docStruct.getString("document_filename")).thenReturn("payslip.pdf");
+        when(docStruct.isNull("gcs_url")).thenReturn(false);
+        when(docStruct.getString("gcs_url")).thenReturn("gs://bucket/payslip.pdf");
+        when(docStruct.isNull("content_type")).thenReturn(false);
+        when(docStruct.getString("content_type")).thenReturn("application/pdf");
+        when(docStruct.isNull("document_status")).thenReturn(false);
+        when(docStruct.getString("document_status")).thenReturn("SUCCESS");
+        when(docStruct.isNull("document_message")).thenReturn(false);
+        when(docStruct.getString("document_message")).thenReturn("OK");
+        when(docStruct.isNull("document_processing_details")).thenReturn(false);
+        when(docStruct.getString("document_processing_details")).thenReturn("{\"grossSalary\": 8000}");
+        when(docStruct.isNull("created_at")).thenReturn(true);
+
+        StepVerifier.create(repository.findAllApplicationDetails())
+                .assertNext(list -> {
+                    assertEquals(1, list.size());
+                    Map<String, Object> item = list.get(0);
+                    assertEquals("TXN-101", item.get("transaction_id"));
+                    assertEquals("usr_101", item.get("user_id"));
+
+                    assertTrue(item.containsKey("documents"));
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> docs = (List<Map<String, Object>>) item.get("documents");
+                    assertEquals(1, docs.size());
+                    assertEquals("DOC-999", docs.get(0).get("document_id"));
+                    assertEquals("payslip.pdf", docs.get(0).get("document_filename"));
+                    assertEquals("SUCCESS", docs.get(0).get("document_status"));
+                    assertEquals("{\"grossSalary\": 8000}", docs.get(0).get("document_processing_details"));
+                })
+                .verifyComplete();
     }
 }
 

@@ -126,7 +126,7 @@ public class LoanApplicationController {
     }
 
     /**
-     * Get all loan applications with entities (application, applicant, property)
+     * Get all loan applications with entities (application, applicant, property, documents)
      * for Ops Underwriting Dashboard.
      */
     @org.springframework.web.bind.annotation.GetMapping("/all")
