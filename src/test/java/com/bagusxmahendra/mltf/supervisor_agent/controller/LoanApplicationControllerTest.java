@@ -99,6 +99,33 @@ class LoanApplicationControllerTest {
     }
 
     @Test
+    void getAllApplicationsForOps_shouldReturnAllApplicationsWithDocumentsAndProcessingDetails() {
+        java.util.Map<String, Object> doc = java.util.Map.of(
+                "document_id", "DOC-001",
+                "document_filename", "salary_slip.pdf",
+                "document_status", "SUCCESS",
+                "document_processing_details", "{\"grossSalary\": 5000}"
+        );
+        java.util.Map<String, Object> appItem = java.util.Map.of(
+                "transaction_id", "TXN-123",
+                "user_id", "usr_1001",
+                "documents", List.of(doc)
+        );
+        when(loanApplicationService.getAllLoanApplications()).thenReturn(Mono.just(List.of(appItem)));
+
+        webTestClient.get()
+                .uri("/api/v1/application/all")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$[0].transaction_id").isEqualTo("TXN-123")
+                .jsonPath("$[0].documents[0].document_id").isEqualTo("DOC-001")
+                .jsonPath("$[0].documents[0].document_processing_details").isEqualTo("{\"grossSalary\": 5000}");
+
+        verify(loanApplicationService).getAllLoanApplications();
+    }
+
+    @Test
     void uploadDocument_withValidJwtAndMultipartFile_shouldReturnSuccess() {
         String authHeader = "Bearer mock.jwt.token";
         String userId = "usr_1001";

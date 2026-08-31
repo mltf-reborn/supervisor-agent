@@ -23,7 +23,7 @@ public class CreateCaseRequest {
 
     @JsonProperty("caseType")
     @JsonAlias({"case_type", "type"})
-    private String caseType = "KYC";
+    private String caseType;
 
     @JsonProperty("caseStatus")
     @JsonAlias({"case_status", "status"})

@@ -25,46 +25,23 @@ class CaseManagementClientTest {
     }
 
     @Test
-    void createCase_whenServerUnavailable_shouldReturnResilientFallback() {
+    void createCase_whenServerUnavailable_shouldEmitError() {
         CreateCaseRequest request = new CreateCaseRequest();
         request.setUserId("usr_1001");
-        request.setCaseType("KYC");
+        request.setCaseType("LOAN_APPLICATION");
         request.setCaseStatus("IN_PROGRESS");
         request.setDocumentUrl("gs://mltf-bucket/session/id.jpg");
-        request.setSelfieUrl("gs://mltf-bucket/session/selfie.jpg");
-        request.setRiskScore(45.0);
-        request.setRiskLevel("MEDIUM");
-        request.setRemarks("Biometric match inconclusive, manual review required.");
-        request.setExternalKycDetails(Map.of("status", "SUCCESS", "isIdentityVerified", true));
-        request.setKycDetails(Map.of("status", "IN_REVIEW"));
+        request.setRemarks("Manual review required.");
 
         StepVerifier.create(client.createCase(request))
-                .assertNext(response -> {
-                    assertNotNull(response);
-                    assertNotNull(response.caseId());
-                    assertTrue(response.caseId().startsWith("CASE-KYC-"));
-                    assertEquals("usr_1001", response.userId());
-                    assertEquals("KYC", response.caseType());
-                    assertEquals("IN_PROGRESS", response.caseStatus());
-                    assertEquals("gs://mltf-bucket/session/id.jpg", response.documentUrl());
-                    assertEquals("gs://mltf-bucket/session/selfie.jpg", response.selfieUrl());
-                    assertEquals(45.0, response.riskScore());
-                    assertEquals("MEDIUM", response.riskLevel());
-                    assertNull(response.assignedTo());
-                    assertNotNull(response.createdAt());
-                })
-                .verifyComplete();
+                .expectError()
+                .verify();
     }
 
     @Test
-    void createCase_withNullRequest_shouldReturnFallbackGracefully() {
+    void createCase_withNullRequest_shouldReturnIllegalArgumentException() {
         StepVerifier.create(client.createCase(null))
-                .assertNext(response -> {
-                    assertNotNull(response);
-                    assertNotNull(response.caseId());
-                    assertEquals("unknown", response.userId());
-                    assertEquals("IN_PROGRESS", response.caseStatus());
-                })
-                .verifyComplete();
+                .expectError(IllegalArgumentException.class)
+                .verify();
     }
 }

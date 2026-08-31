@@ -28,15 +28,18 @@ public class KycService {
     private final KycRepository kycRepository;
     private final StorageService storageService;
     private final KycSupervisorAgentService supervisorAgentService;
+    private final AuditLogService auditLogService;
 
     public KycService(
             KycRepository kycRepository,
             StorageService storageService,
-            KycSupervisorAgentService supervisorAgentService
+            KycSupervisorAgentService supervisorAgentService,
+            AuditLogService auditLogService
     ) {
         this.kycRepository = kycRepository;
         this.storageService = storageService;
         this.supervisorAgentService = supervisorAgentService;
+        this.auditLogService = auditLogService;
     }
 
     /**
@@ -261,8 +264,17 @@ public class KycService {
                                  kycStatus == KycStatus.REJECTED ? "KYC verification rejected." :
                                  "KYC documents received successfully. Verification is in progress.");
 
+                        KycVerifyResponse kycResponse = KycVerifyResponse.from(profile, referenceId, message);
+
                         return kycRepository.save(profile)
-                                .thenReturn(KycVerifyResponse.from(profile, referenceId, message));
+                                .then(auditLogService.logKycVerification(
+                                        sanitizedUserId,
+                                        effectiveFullName,
+                                        idCardNumber,
+                                        referenceId,
+                                        kycResponse
+                                ))
+                                .thenReturn(kycResponse);
                     });
                 });
     }
@@ -322,8 +334,17 @@ public class KycService {
                 now
         );
 
+        KycVerifyResponse kycResponse = KycVerifyResponse.inReview(profile, referenceId);
+
         return kycRepository.save(profile)
-                .thenReturn(KycVerifyResponse.inReview(profile, referenceId));
+                .then(auditLogService.logKycVerification(
+                        sanitizedUserId,
+                        fullName,
+                        null,
+                        referenceId,
+                        kycResponse
+                ))
+                .thenReturn(kycResponse);
     }
 
     public Mono<KycVerifyResponse> verify(String userId, String fullName) {

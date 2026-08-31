@@ -10,6 +10,8 @@ import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.Statement;
 import com.google.cloud.spanner.Value;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +35,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
 
     private final DatabaseClient databaseClient;
     private final SupervisorAgentProperties properties;
+    private final ObjectMapper objectMapper;
     private double similarityThreshold = 0.80;
 
     @Autowired
@@ -40,8 +43,21 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             DatabaseClient databaseClient,
             SupervisorAgentProperties properties
     ) {
+        this(databaseClient, properties, new ObjectMapper()
+                .findAndRegisterModules()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false));
+    }
+
+    public SpannerLoanApplicationRepository(
+            DatabaseClient databaseClient,
+            SupervisorAgentProperties properties,
+            ObjectMapper objectMapper
+    ) {
         this.databaseClient = databaseClient;
         this.properties = properties != null ? properties : new SupervisorAgentProperties();
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper()
+                .findAndRegisterModules()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         if (this.properties.getSimilarityThreshold() > 0) {
             this.similarityThreshold = this.properties.getSimilarityThreshold();
         }
@@ -155,6 +171,144 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     @Override
+    public Mono<Map<String, Object>> getApplicationDetails(String transactionId, String userId) {
+        return Mono.fromCallable(() -> {
+            Map<String, Object> result = new LinkedHashMap<>();
+
+            // 1. Get Application
+            Statement appStatement = Statement.newBuilder(
+                    "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
+                    "facilities_required, refinancing_bank, joint_relationship, marketing_consent, docs_enclosed, " +
+                    "ftfc_category, signatures, application_date, ai_analysis FROM application WHERE transaction_id = @transactionId AND user_id = @userId")
+                    .bind("transactionId").to(transactionId)
+                    .bind("userId").to(userId)
+                    .build();
+
+            Map<String, Object> appData = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(appStatement)) {
+                if (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    appData.put("bank_selection", row.isNull("bank_selection") ? "" : row.getString("bank_selection"));
+                    appData.put("application_type", row.isNull("application_type") ? "" : row.getString("application_type"));
+                    appData.put("status", row.isNull("status") ? "" : row.getString("status"));
+                    appData.put("facility_type", row.isNull("facility_type") ? "" : row.getString("facility_type"));
+                    appData.put("facility_purpose", row.isNull("facility_purpose") ? "" : row.getString("facility_purpose"));
+                    appData.put("facilities_required", row.isNull("facilities_required") ? "" : row.getString("facilities_required"));
+                    appData.put("refinancing_bank", row.isNull("refinancing_bank") ? "" : row.getString("refinancing_bank"));
+                    appData.put("joint_relationship", row.isNull("joint_relationship") ? "" : row.getString("joint_relationship"));
+                    appData.put("marketing_consent", row.isNull("marketing_consent") ? "" : row.getString("marketing_consent"));
+                    appData.put("docs_enclosed", row.isNull("docs_enclosed") ? "" : row.getString("docs_enclosed"));
+                    appData.put("ftfc_category", row.isNull("ftfc_category") ? "" : row.getString("ftfc_category"));
+                    appData.put("signatures", row.isNull("signatures") ? "" : row.getString("signatures"));
+                    appData.put("application_date", row.isNull("application_date") ? "" : row.getDate("application_date").toString());
+                    appData.put("ai_analysis", row.isNull("ai_analysis") ? "" : row.getString("ai_analysis"));
+                } else {
+                    return null; // Not found or not authorized
+                }
+            }
+            result.put("application", appData);
+
+            // 2. Get Applicants (Primary and Joint)
+            Statement applicantStatement = Statement.newBuilder(
+                    "SELECT role, salutation, full_name, id_type, id_no, other_id_type, nationality, race, " +
+                    "country_of_origin, bumiputera_status, gender, marital_status, date_of_birth, age, " +
+                    "dependents_count, schooling_children_count, education_level, resident_type, mobile_phone, " +
+                    "residential_phone, email, residence_type, perm_address, perm_address_line2, perm_postcode, " +
+                    "perm_city, perm_state, perm_country, length_of_stay_years, length_of_stay_months, mail_address, " +
+                    "mail_address_line2, mail_postcode, mail_city, mail_state, mail_country, employment_status, " +
+                    "employer_name, employer_address, employer_address_line2, employer_postcode, employer_city, " +
+                    "employer_state, employer_country, office_phone, direct_line, email_work, nature_of_business, " +
+                    "nature_of_business_specify, occupation, job_position, date_joined, length_of_service_years, " +
+                    "length_of_service_months, prev_employment_status, prev_employer_name, prev_nature_of_business, " +
+                    "prev_occupation, prev_position, prev_phone, prev_service_years, prev_service_months, " +
+                    "monthly_gross_rm, other_monthly_income_rm, annual_gross_rm, other_annual_income_rm, " +
+                    "emergency_name, emergency_relationship, emergency_phone, emergency_phone_home, emergency_email, " +
+                    "spouse_salutation, spouse_full_name, spouse_id_type, spouse_id_no, spouse_other_id_type, " +
+                    "spouse_nationality, spouse_race, spouse_country_of_origin, spouse_bumiputera_status, " +
+                    "spouse_gender, spouse_date_of_birth, spouse_age, spouse_mobile, spouse_residential_phone, " +
+                    "spouse_email, spouse_employer, spouse_nature_of_business, spouse_occupation, spouse_position, " +
+                    "spouse_general_line, spouse_service_years, spouse_monthly_gross_rm, spouse_annual_gross_rm, " +
+                    "other_commitments, close_relatives, close_relations_staff, close_relations_relative " +
+                    "FROM applicant WHERE transaction_id = @transactionId")
+                    .bind("transactionId").to(transactionId)
+                    .build();
+
+            Map<String, Object> primaryApplicantData = new LinkedHashMap<>();
+            Map<String, Object> jointApplicantData = null;
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(applicantStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    Map<String, Object> appMap = mapApplicantStruct(row);
+                    String role = row.isNull("role") ? "Primary" : row.getString("role");
+                    if ("Joint".equalsIgnoreCase(role)) {
+                        jointApplicantData = appMap;
+                    } else if (primaryApplicantData.isEmpty()) {
+                        primaryApplicantData = appMap;
+                    }
+                }
+            }
+            result.put("applicant", primaryApplicantData);
+            if (jointApplicantData != null) {
+                result.put("joint_applicant", jointApplicantData);
+            }
+
+            // 3. Get Property
+            Statement propertyStatement = Statement.newBuilder(
+                    "SELECT property_type, property_sub_type, property_status, construction_stage, developer_name, " +
+                    "project_name, relationship_to_developer, phase_code, contractor_name, spa_price_rm, open_market_rm, " +
+                    "renovation_value_rm, property_address, property_address_line2, property_postcode, property_city, " +
+                    "property_state, property_country, title_number, title_type, lot_number, mukim, district, " +
+                    "state_geran, is_owner_occupied, is_first_time_buyer, gross_purchase_price_rm, discount_rm, " +
+                    "rebate_rm, adjustment_rm, developer_benefits_rm, net_purchase_price_rm " +
+                    "FROM property WHERE transaction_id = @transactionId")
+                    .bind("transactionId").to(transactionId)
+                    .build();
+
+            Map<String, Object> propertyData = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(propertyStatement)) {
+                if (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    propertyData.put("property_type", row.isNull("property_type") ? "" : row.getString("property_type"));
+                    propertyData.put("property_sub_type", row.isNull("property_sub_type") ? "" : row.getString("property_sub_type"));
+                    propertyData.put("property_status", row.isNull("property_status") ? "" : row.getString("property_status"));
+                    propertyData.put("construction_stage", row.isNull("construction_stage") ? "" : row.getString("construction_stage"));
+                    propertyData.put("developer_name", row.isNull("developer_name") ? "" : row.getString("developer_name"));
+                    propertyData.put("project_name", row.isNull("project_name") ? "" : row.getString("project_name"));
+                    propertyData.put("relationship_to_developer", row.isNull("relationship_to_developer") ? "" : row.getString("relationship_to_developer"));
+                    propertyData.put("phase_code", row.isNull("phase_code") ? "" : row.getString("phase_code"));
+                    propertyData.put("contractor_name", row.isNull("contractor_name") ? "" : row.getString("contractor_name"));
+                    propertyData.put("spa_price_rm", row.isNull("spa_price_rm") ? null : row.getBigDecimal("spa_price_rm"));
+                    propertyData.put("open_market_rm", row.isNull("open_market_rm") ? null : row.getBigDecimal("open_market_rm"));
+                    propertyData.put("renovation_value_rm", row.isNull("renovation_value_rm") ? null : row.getBigDecimal("renovation_value_rm"));
+                    propertyData.put("property_address", row.isNull("property_address") ? "" : row.getString("property_address"));
+                    propertyData.put("property_address_line2", row.isNull("property_address_line2") ? "" : row.getString("property_address_line2"));
+                    propertyData.put("property_postcode", row.isNull("property_postcode") ? "" : row.getString("property_postcode"));
+                    propertyData.put("property_city", row.isNull("property_city") ? "" : row.getString("property_city"));
+                    propertyData.put("property_state", row.isNull("property_state") ? "" : row.getString("property_state"));
+                    propertyData.put("property_country", row.isNull("property_country") ? "" : row.getString("property_country"));
+                    propertyData.put("title_number", row.isNull("title_number") ? "" : row.getString("title_number"));
+                    propertyData.put("title_type", row.isNull("title_type") ? "" : row.getString("title_type"));
+                    propertyData.put("lot_number", row.isNull("lot_number") ? "" : row.getString("lot_number"));
+                    propertyData.put("mukim", row.isNull("mukim") ? "" : row.getString("mukim"));
+                    propertyData.put("district", row.isNull("district") ? "" : row.getString("district"));
+                    propertyData.put("state_geran", row.isNull("state_geran") ? "" : row.getString("state_geran"));
+                    propertyData.put("is_owner_occupied", row.isNull("is_owner_occupied") ? null : row.getBoolean("is_owner_occupied"));
+                    propertyData.put("is_first_time_buyer", row.isNull("is_first_time_buyer") ? null : row.getBoolean("is_first_time_buyer"));
+                    propertyData.put("gross_purchase_price_rm", row.isNull("gross_purchase_price_rm") ? null : row.getBigDecimal("gross_purchase_price_rm"));
+                    propertyData.put("discount_rm", row.isNull("discount_rm") ? null : row.getBigDecimal("discount_rm"));
+                    propertyData.put("rebate_rm", row.isNull("rebate_rm") ? null : row.getBigDecimal("rebate_rm"));
+                    propertyData.put("adjustment_rm", row.isNull("adjustment_rm") ? null : row.getBigDecimal("adjustment_rm"));
+                    propertyData.put("developer_benefits_rm", row.isNull("developer_benefits_rm") ? null : row.getBigDecimal("developer_benefits_rm"));
+                    propertyData.put("net_purchase_price_rm", row.isNull("net_purchase_price_rm") ? null : row.getBigDecimal("net_purchase_price_rm"));
+                }
+            }
+            result.put("property", propertyData);
+
+            return result;
+        }).subscribeOn(Schedulers.boundedElastic()).flatMap(Mono::justOrEmpty);
+    }
+
+    @Override
     public Mono<Void> create(String transactionId, String userId, String applicationType, KycProfile kycProfile) {
         return Mono.fromRunnable(() -> {
             Mutation applicationMutation = Mutation.newInsertBuilder("application")
@@ -224,22 +378,16 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         return Mono.fromRunnable(() -> {
             List<Mutation> mutations = new ArrayList<>();
 
-            // 1. Applicant table update/insert
+            // 1. Applicant table update/insert (Primary)
             if (applicantData != null && !applicantData.isEmpty()) {
                 String applicantId = extractString(applicantData, "applicant_id", "applicantId", "user_id", "userId");
                 if (applicantId == null || applicantId.isBlank()) {
                     applicantId = userId;
                 }
 
-                // Check if applicant record exists
+                // Check if primary applicant record exists
                 Statement checkApplicant = Statement.newBuilder(
-                                "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
-                                "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
-                                "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
-                                "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
-                                "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
-                                "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                "SELECT * FROM applicant " +
                                 "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                         .bind("transactionId").to(transactionId)
                         .bind("applicantId").to(applicantId)
@@ -253,86 +401,51 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     }
                 }
 
-                Mutation.WriteBuilder b = applicantExists
-                        ? Mutation.newUpdateBuilder("applicant")
-                        : Mutation.newInsertBuilder("applicant");
+                mutations.add(buildApplicantMutation(transactionId, applicantId, "Primary", applicantExists, applicantData));
 
-                b.set("transaction_id").to(transactionId);
-                b.set("applicant_id").to(applicantId);
+                // Check if joint applicant data is also present
+                @SuppressWarnings("unchecked")
+                Map<String, Object> jointData = (Map<String, Object>) applicantData.getOrDefault("joint_applicant", 
+                        applicantData.get("jointApplicant"));
+                if (jointData != null && !jointData.isEmpty()) {
+                    String jointApplicantId = extractString(jointData, "applicant_id", "applicantId");
+                    if (jointApplicantId == null || jointApplicantId.isBlank()) {
+                        jointApplicantId = applicantId + "_joint";
+                    }
 
-                String role = extractString(applicantData, "role");
-                if (role != null && !role.isBlank()) {
-                    b.set("role").to(role.trim());
-                } else if (!applicantExists) {
-                    b.set("role").to("Primary");
+                    Statement checkJoint = Statement.newBuilder(
+                                    "SELECT * FROM applicant " +
+                                    "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
+                            .bind("transactionId").to(transactionId)
+                            .bind("applicantId").to(jointApplicantId)
+                            .build();
+
+                    boolean jointExists = false;
+                    try (ResultSet rs = databaseClient.singleUse().executeQuery(checkJoint)) {
+                        if (rs.next()) {
+                            jointExists = true;
+                        }
+                    }
+                    mutations.add(buildApplicantMutation(transactionId, jointApplicantId, "Joint", jointExists, jointData));
                 }
-
-                setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
-                setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
-                setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber"));
-                setIfPresent(b, "nationality", extractString(applicantData, "nationality"));
-                setIfPresent(b, "race", extractString(applicantData, "race"));
-                setIfPresent(b, "bumiputera_status", extractBoolean(applicantData, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
-                setIfPresent(b, "gender", extractString(applicantData, "gender", "sex"));
-                setIfPresent(b, "marital_status", extractString(applicantData, "marital_status", "maritalStatus"));
-                setIfPresent(b, "date_of_birth", extractDate(applicantData, "date_of_birth", "dateOfBirth", "dob"));
-                setIfPresent(b, "dependents_count", extractLong(applicantData, "dependents_count", "dependentsCount"));
-                setIfPresent(b, "education_level", extractString(applicantData, "education_level", "educationLevel"));
-                setIfPresent(b, "mobile_phone", extractString(applicantData, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"));
-                setIfPresent(b, "residential_phone", extractString(applicantData, "residential_phone", "residentialPhone"));
-                setIfPresent(b, "email", extractString(applicantData, "email"));
-                setIfPresent(b, "perm_address", extractString(applicantData, "perm_address", "permAddress", "address"));
-                setIfPresent(b, "perm_postcode", extractString(applicantData, "perm_postcode", "permPostcode", "postalCode", "postcode"));
-                setIfPresent(b, "perm_city", extractString(applicantData, "perm_city", "permCity", "city"));
-                setIfPresent(b, "perm_state", extractString(applicantData, "perm_state", "permState", "state"));
-                setIfPresent(b, "mail_address", extractString(applicantData, "mail_address", "mailAddress", "mailingAddress"));
-                setIfPresent(b, "mail_postcode", extractString(applicantData, "mail_postcode", "mailPostcode", "mailingPostcode"));
-                setIfPresent(b, "employment_status", extractString(applicantData, "employment_status", "employmentStatus"));
-                setIfPresent(b, "employer_name", extractString(applicantData, "employer_name", "employerName"));
-                setIfPresent(b, "nature_of_business", extractString(applicantData, "nature_of_business", "natureOfBusiness"));
-                setIfPresent(b, "occupation", extractString(applicantData, "occupation"));
-                setIfPresent(b, "job_position", extractString(applicantData, "job_position", "jobPosition", "position"));
-                setIfPresent(b, "length_of_service_years", extractBigDecimal(applicantData, "length_of_service_years", "lengthOfServiceYears"));
-                setIfPresent(b, "monthly_gross_rm", extractBigDecimal(applicantData, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"));
-                setIfPresent(b, "annual_gross_rm", extractBigDecimal(applicantData, "annual_gross_rm", "annualGrossRm", "annualIncome"));
-                setIfPresent(b, "emergency_name", extractString(applicantData, "emergency_name", "emergencyName"));
-                setIfPresent(b, "emergency_relationship", extractString(applicantData, "emergency_relationship", "emergencyRelationship"));
-                setIfPresent(b, "emergency_phone", extractString(applicantData, "emergency_phone", "emergencyPhone"));
-                setIfPresent(b, "spouse_full_name", extractString(applicantData, "spouse_full_name", "spouseFullName", "spouseName"));
-                setIfPresent(b, "spouse_id_no", extractString(applicantData, "spouse_id_no", "spouseIdNo"));
-                setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile"));
-                setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
-                setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
-
-                mutations.add(b.build());
             }
 
             // 2. Application table update
             if (applicationData != null && !applicationData.isEmpty()) {
                 Statement checkApp = Statement.newBuilder(
-                                "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
-                                "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId")
+                                "SELECT * FROM application WHERE transaction_id = @transactionId")
                         .bind("transactionId").to(transactionId)
                         .build();
 
+                boolean appExists = false;
                 try (ResultSet rs = databaseClient.singleUse().executeQuery(checkApp)) {
                     if (rs.next()) {
+                        appExists = true;
                         validateApplicationSimilarity(rs.getCurrentRowAsStruct(), applicationData);
                     }
                 }
 
-                Mutation.WriteBuilder b = Mutation.newUpdateBuilder("application");
-                b.set("transaction_id").to(transactionId);
-
-                setIfPresent(b, "bank_selection", extractString(applicationData, "bank_selection", "bankSelection", "bank"));
-                setIfPresent(b, "application_type", extractString(applicationData, "application_type", "applicationType"));
-                setIfPresent(b, "status", extractString(applicationData, "status", "applicationStatus"));
-                setIfPresent(b, "facility_type", extractString(applicationData, "facility_type", "facilityType"));
-                setIfPresent(b, "facility_purpose", extractString(applicationData, "facility_purpose", "facilityPurpose"));
-                setIfPresent(b, "marketing_consent", extractString(applicationData, "marketing_consent", "marketingConsent"));
-                setIfPresent(b, "application_date", extractDate(applicationData, "application_date", "applicationDate"));
-
-                mutations.add(b.build());
+                mutations.add(buildApplicationMutation(transactionId, userId, appExists, applicationData));
             }
 
             // 3. Property table update/insert
@@ -355,10 +468,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 boolean propertyExists = false;
                 if (propertyId != null && !propertyId.isBlank()) {
                     Statement checkSpecificProperty = Statement.newBuilder(
-                                    "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
-                                    "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
-                                    "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
-                                    "is_owner_occupied, is_first_time_buyer FROM property " +
+                                    "SELECT * FROM property " +
                                     "WHERE transaction_id = @transactionId AND property_id = @propertyId")
                             .bind("transactionId").to(transactionId)
                             .bind("propertyId").to(propertyId)
@@ -376,34 +486,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                     propertyExists = false;
                 }
 
-                Mutation.WriteBuilder b = propertyExists
-                        ? Mutation.newUpdateBuilder("property")
-                        : Mutation.newInsertBuilder("property");
-
-                b.set("transaction_id").to(transactionId);
-                b.set("property_id").to(propertyId);
-
-                setIfPresent(b, "property_type", extractString(propertyData, "property_type", "propertyType"));
-                setIfPresent(b, "property_status", extractString(propertyData, "property_status", "propertyStatus"));
-                setIfPresent(b, "developer_name", extractString(propertyData, "developer_name", "developerName"));
-                setIfPresent(b, "project_name", extractString(propertyData, "project_name", "projectName"));
-                setIfPresent(b, "contractor_name", extractString(propertyData, "contractor_name", "contractorName"));
-                setIfPresent(b, "spa_price_rm", extractBigDecimal(propertyData, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
-                setIfPresent(b, "open_market_rm", extractBigDecimal(propertyData, "open_market_rm", "openMarketRm", "openMarketValue"));
-                setIfPresent(b, "renovation_value_rm", extractBigDecimal(propertyData, "renovation_value_rm", "renovationValueRm"));
-                setIfPresent(b, "property_address", extractString(propertyData, "property_address", "propertyAddress", "address"));
-                setIfPresent(b, "property_postcode", extractString(propertyData, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
-                setIfPresent(b, "property_city", extractString(propertyData, "property_city", "propertyCity", "city"));
-                setIfPresent(b, "property_state", extractString(propertyData, "property_state", "propertyState", "state"));
-                setIfPresent(b, "title_number", extractString(propertyData, "title_number", "titleNumber"));
-                setIfPresent(b, "title_type", extractString(propertyData, "title_type", "titleType"));
-                setIfPresent(b, "lot_number", extractString(propertyData, "lot_number", "lotNumber"));
-                setIfPresent(b, "mukim", extractString(propertyData, "mukim"));
-                setIfPresent(b, "district", extractString(propertyData, "district"));
-                setIfPresent(b, "is_owner_occupied", extractBoolean(propertyData, "is_owner_occupied", "isOwnerOccupied"));
-                setIfPresent(b, "is_first_time_buyer", extractBoolean(propertyData, "is_first_time_buyer", "isFirstTimeBuyer"));
-
-                mutations.add(b.build());
+                mutations.add(buildPropertyMutation(transactionId, propertyId, propertyExists, propertyData));
             }
 
             if (!mutations.isEmpty()) {
@@ -422,8 +505,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             }
 
             Statement checkApp = Statement.newBuilder(
-                            "SELECT bank_selection, application_type, status, facility_type, facility_purpose, " +
-                            "marketing_consent, application_date FROM application WHERE transaction_id = @transactionId")
+                            "SELECT * FROM application WHERE transaction_id = @transactionId")
                     .bind("transactionId").to(transactionId)
                     .build();
 
@@ -435,30 +517,8 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 }
             }
 
-            Mutation.WriteBuilder b = exists
-                    ? Mutation.newUpdateBuilder("application")
-                    : Mutation.newInsertBuilder("application");
-
-            b.set("transaction_id").to(transactionId);
-            if (!exists) {
-                b.set("user_id").to(userId);
-                String appType = extractString(applicationData, "application_type", "applicationType");
-                b.set("application_type").to((appType != null && !appType.isBlank()) ? appType.trim() : "HOME_LOAN");
-                String status = extractString(applicationData, "status", "applicationStatus");
-                b.set("status").to((status != null && !status.isBlank()) ? status.trim() : "NEW");
-                b.set("created_at").to(Value.COMMIT_TIMESTAMP);
-            }
-
-            setIfPresent(b, "bank_selection", extractString(applicationData, "bank_selection", "bankSelection", "bank"));
-            setIfPresent(b, "application_type", extractString(applicationData, "application_type", "applicationType"));
-            setIfPresent(b, "status", extractString(applicationData, "status", "applicationStatus"));
-            setIfPresent(b, "facility_type", extractString(applicationData, "facility_type", "facilityType"));
-            setIfPresent(b, "facility_purpose", extractString(applicationData, "facility_purpose", "facilityPurpose"));
-            setIfPresent(b, "marketing_consent", extractString(applicationData, "marketing_consent", "marketingConsent"));
-            setIfPresent(b, "application_date", extractDate(applicationData, "application_date", "applicationDate"));
-
             log.info("Executing database mutation to update 'application' table for transaction: {}", transactionId);
-            databaseClient.write(List.of(b.build()));
+            databaseClient.write(List.of(buildApplicationMutation(transactionId, userId, exists, applicationData)));
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
@@ -499,13 +559,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             }
 
             Statement checkApplicant = Statement.newBuilder(
-                            "SELECT role, full_name, id_type, id_no, nationality, race, bumiputera_status, gender, " +
-                            "marital_status, date_of_birth, dependents_count, education_level, mobile_phone, " +
-                            "residential_phone, email, perm_address, perm_postcode, perm_city, perm_state, " +
-                            "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
-                            "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
-                            "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                            "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                            "SELECT * FROM applicant " +
                             "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                     .bind("transactionId").to(transactionId)
                     .bind("applicantId").to(resolvedApplicantId)
@@ -519,59 +573,13 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 }
             }
 
-            Mutation.WriteBuilder b = applicantExists
-                    ? Mutation.newUpdateBuilder("applicant")
-                    : Mutation.newInsertBuilder("applicant");
-
-            b.set("transaction_id").to(transactionId);
-            b.set("applicant_id").to(resolvedApplicantId);
-
             String role = extractString(applicantData, "role");
-            if (role != null && !role.isBlank()) {
-                b.set("role").to(role.trim());
-            } else if (!applicantExists) {
-                b.set("role").to("Primary");
+            if (role == null || role.isBlank()) {
+                role = "Primary";
             }
 
-            setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
-            setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
-            setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber"));
-            setIfPresent(b, "nationality", extractString(applicantData, "nationality"));
-            setIfPresent(b, "race", extractString(applicantData, "race"));
-            setIfPresent(b, "bumiputera_status", extractBoolean(applicantData, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
-            setIfPresent(b, "gender", extractString(applicantData, "gender", "sex"));
-            setIfPresent(b, "marital_status", extractString(applicantData, "marital_status", "maritalStatus"));
-            setIfPresent(b, "date_of_birth", extractDate(applicantData, "date_of_birth", "dateOfBirth", "dob"));
-            setIfPresent(b, "dependents_count", extractLong(applicantData, "dependents_count", "dependentsCount"));
-            setIfPresent(b, "education_level", extractString(applicantData, "education_level", "educationLevel"));
-            setIfPresent(b, "mobile_phone", extractString(applicantData, "mobile_phone", "mobilePhone", "phoneNumber", "mobile"));
-            setIfPresent(b, "residential_phone", extractString(applicantData, "residential_phone", "residentialPhone"));
-            setIfPresent(b, "email", extractString(applicantData, "email"));
-            setIfPresent(b, "perm_address", extractString(applicantData, "perm_address", "permAddress", "address"));
-            setIfPresent(b, "perm_postcode", extractString(applicantData, "perm_postcode", "permPostcode", "postalCode", "postcode"));
-            setIfPresent(b, "perm_city", extractString(applicantData, "perm_city", "permCity", "city"));
-            setIfPresent(b, "perm_state", extractString(applicantData, "perm_state", "permState", "state"));
-            setIfPresent(b, "mail_address", extractString(applicantData, "mail_address", "mailAddress", "mailingAddress"));
-            setIfPresent(b, "mail_postcode", extractString(applicantData, "mail_postcode", "mailPostcode", "mailingPostcode"));
-            setIfPresent(b, "employment_status", extractString(applicantData, "employment_status", "employmentStatus"));
-            setIfPresent(b, "employer_name", extractString(applicantData, "employer_name", "employerName"));
-            setIfPresent(b, "nature_of_business", extractString(applicantData, "nature_of_business", "natureOfBusiness"));
-            setIfPresent(b, "occupation", extractString(applicantData, "occupation"));
-            setIfPresent(b, "job_position", extractString(applicantData, "job_position", "jobPosition", "position"));
-            setIfPresent(b, "length_of_service_years", extractBigDecimal(applicantData, "length_of_service_years", "lengthOfServiceYears"));
-            setIfPresent(b, "monthly_gross_rm", extractBigDecimal(applicantData, "monthly_gross_rm", "monthlyGrossRm", "monthlyIncome", "grossIncome"));
-            setIfPresent(b, "annual_gross_rm", extractBigDecimal(applicantData, "annual_gross_rm", "annualGrossRm", "annualIncome"));
-            setIfPresent(b, "emergency_name", extractString(applicantData, "emergency_name", "emergencyName"));
-            setIfPresent(b, "emergency_relationship", extractString(applicantData, "emergency_relationship", "emergencyRelationship"));
-            setIfPresent(b, "emergency_phone", extractString(applicantData, "emergency_phone", "emergencyPhone"));
-            setIfPresent(b, "spouse_full_name", extractString(applicantData, "spouse_full_name", "spouseFullName", "spouseName"));
-            setIfPresent(b, "spouse_id_no", extractString(applicantData, "spouse_id_no", "spouseIdNo"));
-            setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile"));
-            setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
-            setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm"));
-
             log.info("Executing database mutation to update 'applicant' table for transaction: {}, applicantId: {}", transactionId, resolvedApplicantId);
-            databaseClient.write(List.of(b.build()));
+            databaseClient.write(List.of(buildApplicantMutation(transactionId, resolvedApplicantId, role, applicantExists, applicantData)));
         }).subscribeOn(Schedulers.boundedElastic()).then();
     }
 
@@ -603,10 +611,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             boolean propertyExists = false;
             if (resolvedPropertyId != null && !resolvedPropertyId.isBlank()) {
                 Statement checkSpecific = Statement.newBuilder(
-                                "SELECT property_type, property_status, developer_name, project_name, contractor_name, " +
-                                "spa_price_rm, open_market_rm, renovation_value_rm, property_address, property_postcode, " +
-                                "property_city, property_state, title_number, title_type, lot_number, mukim, district, " +
-                                "is_owner_occupied, is_first_time_buyer FROM property " +
+                                "SELECT * FROM property " +
                                 "WHERE transaction_id = @transactionId AND property_id = @propertyId")
                         .bind("transactionId").to(transactionId)
                         .bind("propertyId").to(resolvedPropertyId)
@@ -624,36 +629,307 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                 propertyExists = false;
             }
 
-            Mutation.WriteBuilder b = propertyExists
-                    ? Mutation.newUpdateBuilder("property")
-                    : Mutation.newInsertBuilder("property");
-
-            b.set("transaction_id").to(transactionId);
-            b.set("property_id").to(resolvedPropertyId);
-
-            setIfPresent(b, "property_type", extractString(propertyData, "property_type", "propertyType"));
-            setIfPresent(b, "property_status", extractString(propertyData, "property_status", "propertyStatus"));
-            setIfPresent(b, "developer_name", extractString(propertyData, "developer_name", "developerName"));
-            setIfPresent(b, "project_name", extractString(propertyData, "project_name", "projectName"));
-            setIfPresent(b, "contractor_name", extractString(propertyData, "contractor_name", "contractorName"));
-            setIfPresent(b, "spa_price_rm", extractBigDecimal(propertyData, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
-            setIfPresent(b, "open_market_rm", extractBigDecimal(propertyData, "open_market_rm", "openMarketRm", "openMarketValue"));
-            setIfPresent(b, "renovation_value_rm", extractBigDecimal(propertyData, "renovation_value_rm", "renovationValueRm"));
-            setIfPresent(b, "property_address", extractString(propertyData, "property_address", "propertyAddress", "address"));
-            setIfPresent(b, "property_postcode", extractString(propertyData, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
-            setIfPresent(b, "property_city", extractString(propertyData, "property_city", "propertyCity", "city"));
-            setIfPresent(b, "property_state", extractString(propertyData, "property_state", "propertyState", "state"));
-            setIfPresent(b, "title_number", extractString(propertyData, "title_number", "titleNumber"));
-            setIfPresent(b, "title_type", extractString(propertyData, "title_type", "titleType"));
-            setIfPresent(b, "lot_number", extractString(propertyData, "lot_number", "lotNumber"));
-            setIfPresent(b, "mukim", extractString(propertyData, "mukim"));
-            setIfPresent(b, "district", extractString(propertyData, "district"));
-            setIfPresent(b, "is_owner_occupied", extractBoolean(propertyData, "is_owner_occupied", "isOwnerOccupied"));
-            setIfPresent(b, "is_first_time_buyer", extractBoolean(propertyData, "is_first_time_buyer", "isFirstTimeBuyer"));
-
             log.info("Executing database mutation to update 'property' table for transaction: {}, propertyId: {}", transactionId, resolvedPropertyId);
-            databaseClient.write(List.of(b.build()));
+            databaseClient.write(List.of(buildPropertyMutation(transactionId, resolvedPropertyId, propertyExists, propertyData)));
         }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
+
+    private Map<String, Object> mapApplicantStruct(com.google.cloud.spanner.Struct row) {
+        Map<String, Object> applicantData = new LinkedHashMap<>();
+        applicantData.put("role", row.isNull("role") ? "" : row.getString("role"));
+        applicantData.put("salutation", row.isNull("salutation") ? "" : row.getString("salutation"));
+        applicantData.put("full_name", row.isNull("full_name") ? "" : row.getString("full_name"));
+        applicantData.put("id_type", row.isNull("id_type") ? "" : row.getString("id_type"));
+        applicantData.put("id_no", row.isNull("id_no") ? "" : row.getString("id_no"));
+        applicantData.put("other_id_type", row.isNull("other_id_type") ? "" : row.getString("other_id_type"));
+        applicantData.put("nationality", row.isNull("nationality") ? "" : row.getString("nationality"));
+        applicantData.put("race", row.isNull("race") ? "" : row.getString("race"));
+        applicantData.put("country_of_origin", row.isNull("country_of_origin") ? "" : row.getString("country_of_origin"));
+        applicantData.put("bumiputera_status", row.isNull("bumiputera_status") ? null : row.getBoolean("bumiputera_status"));
+        applicantData.put("gender", row.isNull("gender") ? "" : row.getString("gender"));
+        applicantData.put("marital_status", row.isNull("marital_status") ? "" : row.getString("marital_status"));
+        applicantData.put("date_of_birth", row.isNull("date_of_birth") ? "" : row.getDate("date_of_birth").toString());
+        applicantData.put("age", row.isNull("age") ? null : row.getLong("age"));
+        applicantData.put("dependents_count", row.isNull("dependents_count") ? null : row.getLong("dependents_count"));
+        applicantData.put("schooling_children_count", row.isNull("schooling_children_count") ? null : row.getLong("schooling_children_count"));
+        applicantData.put("education_level", row.isNull("education_level") ? "" : row.getString("education_level"));
+        applicantData.put("resident_type", row.isNull("resident_type") ? "" : row.getString("resident_type"));
+        applicantData.put("mobile_phone", row.isNull("mobile_phone") ? "" : row.getString("mobile_phone"));
+        applicantData.put("residential_phone", row.isNull("residential_phone") ? "" : row.getString("residential_phone"));
+        applicantData.put("email", row.isNull("email") ? "" : row.getString("email"));
+        applicantData.put("residence_type", row.isNull("residence_type") ? "" : row.getString("residence_type"));
+        applicantData.put("perm_address", row.isNull("perm_address") ? "" : row.getString("perm_address"));
+        applicantData.put("perm_address_line2", row.isNull("perm_address_line2") ? "" : row.getString("perm_address_line2"));
+        applicantData.put("perm_postcode", row.isNull("perm_postcode") ? "" : row.getString("perm_postcode"));
+        applicantData.put("perm_city", row.isNull("perm_city") ? "" : row.getString("perm_city"));
+        applicantData.put("perm_state", row.isNull("perm_state") ? "" : row.getString("perm_state"));
+        applicantData.put("perm_country", row.isNull("perm_country") ? "" : row.getString("perm_country"));
+        applicantData.put("length_of_stay_years", row.isNull("length_of_stay_years") ? null : row.getBigDecimal("length_of_stay_years"));
+        applicantData.put("length_of_stay_months", row.isNull("length_of_stay_months") ? null : row.getBigDecimal("length_of_stay_months"));
+        applicantData.put("mail_address", row.isNull("mail_address") ? "" : row.getString("mail_address"));
+        applicantData.put("mail_address_line2", row.isNull("mail_address_line2") ? "" : row.getString("mail_address_line2"));
+        applicantData.put("mail_postcode", row.isNull("mail_postcode") ? "" : row.getString("mail_postcode"));
+        applicantData.put("mail_city", row.isNull("mail_city") ? "" : row.getString("mail_city"));
+        applicantData.put("mail_state", row.isNull("mail_state") ? "" : row.getString("mail_state"));
+        applicantData.put("mail_country", row.isNull("mail_country") ? "" : row.getString("mail_country"));
+        applicantData.put("employment_status", row.isNull("employment_status") ? "" : row.getString("employment_status"));
+        applicantData.put("employer_name", row.isNull("employer_name") ? "" : row.getString("employer_name"));
+        applicantData.put("employer_address", row.isNull("employer_address") ? "" : row.getString("employer_address"));
+        applicantData.put("employer_address_line2", row.isNull("employer_address_line2") ? "" : row.getString("employer_address_line2"));
+        applicantData.put("employer_postcode", row.isNull("employer_postcode") ? "" : row.getString("employer_postcode"));
+        applicantData.put("employer_city", row.isNull("employer_city") ? "" : row.getString("employer_city"));
+        applicantData.put("employer_state", row.isNull("employer_state") ? "" : row.getString("employer_state"));
+        applicantData.put("employer_country", row.isNull("employer_country") ? "" : row.getString("employer_country"));
+        applicantData.put("office_phone", row.isNull("office_phone") ? "" : row.getString("office_phone"));
+        applicantData.put("direct_line", row.isNull("direct_line") ? "" : row.getString("direct_line"));
+        applicantData.put("email_work", row.isNull("email_work") ? "" : row.getString("email_work"));
+        applicantData.put("nature_of_business", row.isNull("nature_of_business") ? "" : row.getString("nature_of_business"));
+        applicantData.put("nature_of_business_specify", row.isNull("nature_of_business_specify") ? "" : row.getString("nature_of_business_specify"));
+        applicantData.put("occupation", row.isNull("occupation") ? "" : row.getString("occupation"));
+        applicantData.put("job_position", row.isNull("job_position") ? "" : row.getString("job_position"));
+        applicantData.put("date_joined", row.isNull("date_joined") ? "" : row.getDate("date_joined").toString());
+        applicantData.put("length_of_service_years", row.isNull("length_of_service_years") ? null : row.getBigDecimal("length_of_service_years"));
+        applicantData.put("length_of_service_months", row.isNull("length_of_service_months") ? null : row.getBigDecimal("length_of_service_months"));
+        applicantData.put("prev_employment_status", row.isNull("prev_employment_status") ? "" : row.getString("prev_employment_status"));
+        applicantData.put("prev_employer_name", row.isNull("prev_employer_name") ? "" : row.getString("prev_employer_name"));
+        applicantData.put("prev_nature_of_business", row.isNull("prev_nature_of_business") ? "" : row.getString("prev_nature_of_business"));
+        applicantData.put("prev_occupation", row.isNull("prev_occupation") ? "" : row.getString("prev_occupation"));
+        applicantData.put("prev_position", row.isNull("prev_position") ? "" : row.getString("prev_position"));
+        applicantData.put("prev_phone", row.isNull("prev_phone") ? "" : row.getString("prev_phone"));
+        applicantData.put("prev_service_years", row.isNull("prev_service_years") ? null : row.getBigDecimal("prev_service_years"));
+        applicantData.put("prev_service_months", row.isNull("prev_service_months") ? null : row.getBigDecimal("prev_service_months"));
+        applicantData.put("monthly_gross_rm", row.isNull("monthly_gross_rm") ? null : row.getBigDecimal("monthly_gross_rm"));
+        applicantData.put("other_monthly_income_rm", row.isNull("other_monthly_income_rm") ? null : row.getBigDecimal("other_monthly_income_rm"));
+        applicantData.put("annual_gross_rm", row.isNull("annual_gross_rm") ? null : row.getBigDecimal("annual_gross_rm"));
+        applicantData.put("other_annual_income_rm", row.isNull("other_annual_income_rm") ? null : row.getBigDecimal("other_annual_income_rm"));
+        applicantData.put("emergency_name", row.isNull("emergency_name") ? "" : row.getString("emergency_name"));
+        applicantData.put("emergency_relationship", row.isNull("emergency_relationship") ? "" : row.getString("emergency_relationship"));
+        applicantData.put("emergency_phone", row.isNull("emergency_phone") ? "" : row.getString("emergency_phone"));
+        applicantData.put("emergency_phone_home", row.isNull("emergency_phone_home") ? "" : row.getString("emergency_phone_home"));
+        applicantData.put("emergency_email", row.isNull("emergency_email") ? "" : row.getString("emergency_email"));
+        applicantData.put("spouse_salutation", row.isNull("spouse_salutation") ? "" : row.getString("spouse_salutation"));
+        applicantData.put("spouse_full_name", row.isNull("spouse_full_name") ? "" : row.getString("spouse_full_name"));
+        applicantData.put("spouse_id_type", row.isNull("spouse_id_type") ? "" : row.getString("spouse_id_type"));
+        applicantData.put("spouse_id_no", row.isNull("spouse_id_no") ? "" : row.getString("spouse_id_no"));
+        applicantData.put("spouse_other_id_type", row.isNull("spouse_other_id_type") ? "" : row.getString("spouse_other_id_type"));
+        applicantData.put("spouse_nationality", row.isNull("spouse_nationality") ? "" : row.getString("spouse_nationality"));
+        applicantData.put("spouse_race", row.isNull("spouse_race") ? "" : row.getString("spouse_race"));
+        applicantData.put("spouse_country_of_origin", row.isNull("spouse_country_of_origin") ? "" : row.getString("spouse_country_of_origin"));
+        applicantData.put("spouse_bumiputera_status", row.isNull("spouse_bumiputera_status") ? null : row.getBoolean("spouse_bumiputera_status"));
+        applicantData.put("spouse_gender", row.isNull("spouse_gender") ? "" : row.getString("spouse_gender"));
+        applicantData.put("spouse_date_of_birth", row.isNull("spouse_date_of_birth") ? "" : row.getDate("spouse_date_of_birth").toString());
+        applicantData.put("spouse_age", row.isNull("spouse_age") ? null : row.getLong("spouse_age"));
+        applicantData.put("spouse_mobile", row.isNull("spouse_mobile") ? "" : row.getString("spouse_mobile"));
+        applicantData.put("spouse_residential_phone", row.isNull("spouse_residential_phone") ? "" : row.getString("spouse_residential_phone"));
+        applicantData.put("spouse_email", row.isNull("spouse_email") ? "" : row.getString("spouse_email"));
+        applicantData.put("spouse_employer", row.isNull("spouse_employer") ? "" : row.getString("spouse_employer"));
+        applicantData.put("spouse_nature_of_business", row.isNull("spouse_nature_of_business") ? "" : row.getString("spouse_nature_of_business"));
+        applicantData.put("spouse_occupation", row.isNull("spouse_occupation") ? "" : row.getString("spouse_occupation"));
+        applicantData.put("spouse_position", row.isNull("spouse_position") ? "" : row.getString("spouse_position"));
+        applicantData.put("spouse_general_line", row.isNull("spouse_general_line") ? "" : row.getString("spouse_general_line"));
+        applicantData.put("spouse_service_years", row.isNull("spouse_service_years") ? null : row.getBigDecimal("spouse_service_years"));
+        applicantData.put("spouse_monthly_gross_rm", row.isNull("spouse_monthly_gross_rm") ? null : row.getBigDecimal("spouse_monthly_gross_rm"));
+        applicantData.put("spouse_annual_gross_rm", row.isNull("spouse_annual_gross_rm") ? null : row.getBigDecimal("spouse_annual_gross_rm"));
+        applicantData.put("other_commitments", row.isNull("other_commitments") ? "" : row.getString("other_commitments"));
+        applicantData.put("close_relatives", row.isNull("close_relatives") ? "" : row.getString("close_relatives"));
+        applicantData.put("close_relations_staff", row.isNull("close_relations_staff") ? null : row.getBoolean("close_relations_staff"));
+        applicantData.put("close_relations_relative", row.isNull("close_relations_relative") ? null : row.getBoolean("close_relations_relative"));
+        return applicantData;
+    }
+
+    private Mutation buildApplicantMutation(String transactionId, String applicantId, String role, boolean exists, Map<String, Object> applicantData) {
+        Mutation.WriteBuilder b = exists
+                ? Mutation.newUpdateBuilder("applicant")
+                : Mutation.newInsertBuilder("applicant");
+
+        b.set("transaction_id").to(transactionId);
+        b.set("applicant_id").to(applicantId);
+
+        String specifiedRole = extractString(applicantData, "role");
+        if (specifiedRole != null && !specifiedRole.isBlank()) {
+            b.set("role").to(specifiedRole.trim());
+        } else if (role != null && !role.isBlank()) {
+            b.set("role").to(role.trim());
+        } else if (!exists) {
+            b.set("role").to("Primary");
+        }
+
+        setIfPresent(b, "salutation", extractString(applicantData, "salutation"));
+        setIfPresent(b, "full_name", extractString(applicantData, "full_name", "fullName", "name"));
+        setIfPresent(b, "id_type", extractString(applicantData, "id_type", "idType"));
+        setIfPresent(b, "id_no", extractString(applicantData, "id_no", "idNo", "idNumber", "newNric", "oldNric", "passportNo", "otherIdNo"));
+        setIfPresent(b, "other_id_type", extractString(applicantData, "other_id_type", "otherIdType"));
+        setIfPresent(b, "nationality", extractString(applicantData, "nationality"));
+        setIfPresent(b, "race", extractString(applicantData, "race"));
+        setIfPresent(b, "country_of_origin", extractString(applicantData, "country_of_origin", "countryOfOrigin"));
+        setIfPresent(b, "bumiputera_status", extractBoolean(applicantData, "bumiputera_status", "bumiputeraStatus", "isBumiputera"));
+        setIfPresent(b, "gender", extractString(applicantData, "gender", "sex"));
+        setIfPresent(b, "marital_status", extractString(applicantData, "marital_status", "maritalStatus"));
+        setIfPresent(b, "date_of_birth", extractDate(applicantData, "date_of_birth", "dateOfBirth", "dob"));
+        setIfPresent(b, "age", extractLong(applicantData, "age"));
+        setIfPresent(b, "dependents_count", extractLong(applicantData, "dependents_count", "dependentsCount"));
+        setIfPresent(b, "schooling_children_count", extractLong(applicantData, "schooling_children_count", "schoolingChildrenCount"));
+        setIfPresent(b, "education_level", extractString(applicantData, "education_level", "educationLevel"));
+        setIfPresent(b, "resident_type", extractString(applicantData, "resident_type", "residentType"));
+        setIfPresent(b, "mobile_phone", extractString(applicantData, "mobile_phone", "mobilePhone", "phoneNumber", "phoneMobile", "mobile"));
+        setIfPresent(b, "residential_phone", extractString(applicantData, "residential_phone", "residentialPhone", "phoneHome", "homePhone"));
+        setIfPresent(b, "email", extractString(applicantData, "email"));
+        setIfPresent(b, "residence_type", extractString(applicantData, "residence_type", "residenceType"));
+        setIfPresent(b, "perm_address", extractString(applicantData, "perm_address", "permAddress", "address", "addressLine1", "address_line1"));
+        setIfPresent(b, "perm_address_line2", extractString(applicantData, "perm_address_line2", "permAddressLine2", "addressLine2", "address_line2"));
+        setIfPresent(b, "perm_postcode", extractString(applicantData, "perm_postcode", "permPostcode", "postalCode", "postcode"));
+        setIfPresent(b, "perm_city", extractString(applicantData, "perm_city", "permCity", "city"));
+        setIfPresent(b, "perm_state", extractString(applicantData, "perm_state", "permState", "state"));
+        setIfPresent(b, "perm_country", extractString(applicantData, "perm_country", "permCountry", "country"));
+        setIfPresent(b, "length_of_stay_years", extractBigDecimal(applicantData, "length_of_stay_years", "lengthOfStayYears"));
+        setIfPresent(b, "length_of_stay_months", extractBigDecimal(applicantData, "length_of_stay_months", "lengthOfStayMonths"));
+        setIfPresent(b, "mail_address", extractString(applicantData, "mail_address", "mailAddress", "mailingAddress", "mailingAddressLine1", "mailing_address_line1"));
+        setIfPresent(b, "mail_address_line2", extractString(applicantData, "mail_address_line2", "mailAddressLine2", "mailingAddressLine2", "mailing_address_line2"));
+        setIfPresent(b, "mail_postcode", extractString(applicantData, "mail_postcode", "mailPostcode", "mailingPostcode"));
+        setIfPresent(b, "mail_city", extractString(applicantData, "mail_city", "mailCity", "mailingCity"));
+        setIfPresent(b, "mail_state", extractString(applicantData, "mail_state", "mailState", "mailingState"));
+        setIfPresent(b, "mail_country", extractString(applicantData, "mail_country", "mailCountry", "mailingCountry"));
+        setIfPresent(b, "employment_status", extractString(applicantData, "employment_status", "employmentStatus"));
+        setIfPresent(b, "employer_name", extractString(applicantData, "employer_name", "employerName"));
+        setIfPresent(b, "employer_address", extractString(applicantData, "employer_address", "employerAddress", "employerAddressLine1", "employer_address_line1"));
+        setIfPresent(b, "employer_address_line2", extractString(applicantData, "employer_address_line2", "employerAddressLine2", "employer_address_line2"));
+        setIfPresent(b, "employer_postcode", extractString(applicantData, "employer_postcode", "employerPostcode"));
+        setIfPresent(b, "employer_city", extractString(applicantData, "employer_city", "employerCity"));
+        setIfPresent(b, "employer_state", extractString(applicantData, "employer_state", "employerState"));
+        setIfPresent(b, "employer_country", extractString(applicantData, "employer_country", "employerCountry"));
+        setIfPresent(b, "office_phone", extractString(applicantData, "office_phone", "officePhone"));
+        setIfPresent(b, "direct_line", extractString(applicantData, "direct_line", "directLine"));
+        setIfPresent(b, "email_work", extractString(applicantData, "email_work", "emailWork", "workEmail"));
+        setIfPresent(b, "nature_of_business", extractString(applicantData, "nature_of_business", "natureOfBusiness"));
+        setIfPresent(b, "nature_of_business_specify", extractString(applicantData, "nature_of_business_specify", "natureOfBusinessSpecify"));
+        setIfPresent(b, "occupation", extractString(applicantData, "occupation"));
+        setIfPresent(b, "job_position", extractString(applicantData, "job_position", "jobPosition", "position"));
+        setIfPresent(b, "date_joined", extractDate(applicantData, "date_joined", "dateJoined"));
+        setIfPresent(b, "length_of_service_years", extractBigDecimal(applicantData, "length_of_service_years", "lengthOfServiceYears", "serviceYears"));
+        setIfPresent(b, "length_of_service_months", extractBigDecimal(applicantData, "length_of_service_months", "lengthOfServiceMonths", "serviceMonths"));
+        setIfPresent(b, "prev_employment_status", extractString(applicantData, "prev_employment_status", "prevEmploymentStatus"));
+        setIfPresent(b, "prev_employer_name", extractString(applicantData, "prev_employer_name", "prevEmployerName"));
+        setIfPresent(b, "prev_nature_of_business", extractString(applicantData, "prev_nature_of_business", "prevNatureOfBusiness"));
+        setIfPresent(b, "prev_occupation", extractString(applicantData, "prev_occupation", "prevOccupation"));
+        setIfPresent(b, "prev_position", extractString(applicantData, "prev_position", "prevPosition"));
+        setIfPresent(b, "prev_phone", extractString(applicantData, "prev_phone", "prevPhone"));
+        setIfPresent(b, "prev_service_years", extractBigDecimal(applicantData, "prev_service_years", "prevServiceYears"));
+        setIfPresent(b, "prev_service_months", extractBigDecimal(applicantData, "prev_service_months", "prevServiceMonths"));
+        setIfPresent(b, "monthly_gross_rm", extractBigDecimal(applicantData, "monthly_gross_rm", "monthlyGrossRm", "monthlyGrossIncome", "monthlyIncome", "grossIncome"));
+        setIfPresent(b, "other_monthly_income_rm", extractBigDecimal(applicantData, "other_monthly_income_rm", "otherMonthlyIncomeRm", "otherMonthlyIncome"));
+        setIfPresent(b, "annual_gross_rm", extractBigDecimal(applicantData, "annual_gross_rm", "annualGrossRm", "annualGrossIncome", "annualIncome"));
+        setIfPresent(b, "other_annual_income_rm", extractBigDecimal(applicantData, "other_annual_income_rm", "otherAnnualIncomeRm", "otherAnnualIncome"));
+        setIfPresent(b, "emergency_name", extractString(applicantData, "emergency_name", "emergencyName", "emergencyFullName"));
+        setIfPresent(b, "emergency_relationship", extractString(applicantData, "emergency_relationship", "emergencyRelationship"));
+        setIfPresent(b, "emergency_phone", extractString(applicantData, "emergency_phone", "emergencyPhone", "emergencyMobilePhone"));
+        setIfPresent(b, "emergency_phone_home", extractString(applicantData, "emergency_phone_home", "emergencyPhoneHome"));
+        setIfPresent(b, "emergency_email", extractString(applicantData, "emergency_email", "emergencyEmail"));
+        setIfPresent(b, "spouse_salutation", extractString(applicantData, "spouse_salutation", "spouseSalutation"));
+        setIfPresent(b, "spouse_full_name", extractString(applicantData, "spouse_full_name", "spouseFullName", "spouseName"));
+        setIfPresent(b, "spouse_id_type", extractString(applicantData, "spouse_id_type", "spouseIdType"));
+        setIfPresent(b, "spouse_id_no", extractString(applicantData, "spouse_id_no", "spouseIdNo"));
+        setIfPresent(b, "spouse_other_id_type", extractString(applicantData, "spouse_other_id_type", "spouseOtherIdType"));
+        setIfPresent(b, "spouse_nationality", extractString(applicantData, "spouse_nationality", "spouseNationality"));
+        setIfPresent(b, "spouse_race", extractString(applicantData, "spouse_race", "spouseRace"));
+        setIfPresent(b, "spouse_country_of_origin", extractString(applicantData, "spouse_country_of_origin", "spouseCountryOfOrigin"));
+        setIfPresent(b, "spouse_bumiputera_status", extractBoolean(applicantData, "spouse_bumiputera_status", "spouseBumiputeraStatus"));
+        setIfPresent(b, "spouse_gender", extractString(applicantData, "spouse_gender", "spouseGender"));
+        setIfPresent(b, "spouse_date_of_birth", extractDate(applicantData, "spouse_date_of_birth", "spouseDateOfBirth", "spouseDob"));
+        setIfPresent(b, "spouse_age", extractLong(applicantData, "spouse_age", "spouseAge"));
+        setIfPresent(b, "spouse_mobile", extractString(applicantData, "spouse_mobile", "spouseMobile", "spousePhoneMobile"));
+        setIfPresent(b, "spouse_residential_phone", extractString(applicantData, "spouse_residential_phone", "spouseResidentialPhone", "spousePhoneHome"));
+        setIfPresent(b, "spouse_email", extractString(applicantData, "spouse_email", "spouseEmail"));
+        setIfPresent(b, "spouse_employer", extractString(applicantData, "spouse_employer", "spouseEmployer"));
+        setIfPresent(b, "spouse_nature_of_business", extractString(applicantData, "spouse_nature_of_business", "spouseNatureOfBusiness"));
+        setIfPresent(b, "spouse_occupation", extractString(applicantData, "spouse_occupation", "spouseOccupation"));
+        setIfPresent(b, "spouse_position", extractString(applicantData, "spouse_position", "spousePosition"));
+        setIfPresent(b, "spouse_general_line", extractString(applicantData, "spouse_general_line", "spouseGeneralLine"));
+        setIfPresent(b, "spouse_service_years", extractBigDecimal(applicantData, "spouse_service_years", "spouseServiceYears"));
+        setIfPresent(b, "spouse_monthly_gross_rm", extractBigDecimal(applicantData, "spouse_monthly_gross_rm", "spouseMonthlyGrossRm", "spouseMonthlyGrossIncome"));
+        setIfPresent(b, "spouse_annual_gross_rm", extractBigDecimal(applicantData, "spouse_annual_gross_rm", "spouseAnnualGrossRm", "spouseAnnualGrossIncome"));
+        setIfPresent(b, "other_commitments", extractString(applicantData, "other_commitments", "otherCommitments"));
+        setIfPresent(b, "close_relatives", extractString(applicantData, "close_relatives", "closeRelatives"));
+        setIfPresent(b, "close_relations_staff", extractBoolean(applicantData, "close_relations_staff", "closeRelationsStaff"));
+        setIfPresent(b, "close_relations_relative", extractBoolean(applicantData, "close_relations_relative", "closeRelationsRelative"));
+
+        return b.build();
+    }
+
+    private Mutation buildApplicationMutation(String transactionId, String userId, boolean exists, Map<String, Object> applicationData) {
+        Mutation.WriteBuilder b = exists
+                ? Mutation.newUpdateBuilder("application")
+                : Mutation.newInsertBuilder("application");
+
+        b.set("transaction_id").to(transactionId);
+        if (!exists) {
+            b.set("user_id").to(userId);
+            String appType = extractString(applicationData, "application_type", "applicationType", "applicationCategory");
+            b.set("application_type").to((appType != null && !appType.isBlank()) ? appType.trim() : "HOME_LOAN");
+            String status = extractString(applicationData, "status", "applicationStatus");
+            b.set("status").to((status != null && !status.isBlank()) ? status.trim() : "NEW");
+            b.set("created_at").to(Value.COMMIT_TIMESTAMP);
+        }
+
+        setIfPresent(b, "bank_selection", extractString(applicationData, "bank_selection", "bankSelection", "bank"));
+        setIfPresent(b, "application_type", extractString(applicationData, "application_type", "applicationType", "applicationCategory"));
+        setIfPresent(b, "status", extractString(applicationData, "status", "applicationStatus"));
+        setIfPresent(b, "facility_type", extractString(applicationData, "facility_type", "facilityType"));
+        setIfPresent(b, "facility_purpose", extractString(applicationData, "facility_purpose", "facilityPurpose", "purposeOfFacility"));
+        setIfPresent(b, "facilities_required", extractString(applicationData, "facilities_required", "facilitiesRequired"));
+        setIfPresent(b, "refinancing_bank", extractString(applicationData, "refinancing_bank", "refinancingBank"));
+        setIfPresent(b, "joint_relationship", extractString(applicationData, "joint_relationship", "jointRelationship"));
+        setIfPresent(b, "marketing_consent", extractString(applicationData, "marketing_consent", "marketingConsent", "consentMarketing"));
+        setIfPresent(b, "docs_enclosed", extractString(applicationData, "docs_enclosed", "docsEnclosed"));
+        setIfPresent(b, "ftfc_category", extractString(applicationData, "ftfc_category", "ftfcCategory"));
+        setIfPresent(b, "signatures", extractString(applicationData, "signatures"));
+        setIfPresent(b, "application_date", extractDate(applicationData, "application_date", "applicationDate"));
+        setIfPresent(b, "ai_analysis", extractString(applicationData, "ai_analysis", "aiAnalysis"));
+
+        return b.build();
+    }
+
+    private Mutation buildPropertyMutation(String transactionId, String propertyId, boolean exists, Map<String, Object> propertyData) {
+        Mutation.WriteBuilder b = exists
+                ? Mutation.newUpdateBuilder("property")
+                : Mutation.newInsertBuilder("property");
+
+        b.set("transaction_id").to(transactionId);
+        b.set("property_id").to(propertyId);
+
+        setIfPresent(b, "property_type", extractString(propertyData, "property_type", "propertyType"));
+        setIfPresent(b, "property_sub_type", extractString(propertyData, "property_sub_type", "propertySubType"));
+        setIfPresent(b, "property_status", extractString(propertyData, "property_status", "propertyStatus"));
+        setIfPresent(b, "construction_stage", extractString(propertyData, "construction_stage", "constructionStage"));
+        setIfPresent(b, "developer_name", extractString(propertyData, "developer_name", "developerName"));
+        setIfPresent(b, "project_name", extractString(propertyData, "project_name", "projectName"));
+        setIfPresent(b, "relationship_to_developer", extractString(propertyData, "relationship_to_developer", "relationshipToDeveloper"));
+        setIfPresent(b, "phase_code", extractString(propertyData, "phase_code", "phaseCode"));
+        setIfPresent(b, "contractor_name", extractString(propertyData, "contractor_name", "contractorName"));
+        setIfPresent(b, "spa_price_rm", extractBigDecimal(propertyData, "spa_price_rm", "spaPriceRm", "spaPrice", "price"));
+        setIfPresent(b, "open_market_rm", extractBigDecimal(propertyData, "open_market_rm", "openMarketRm", "openMarketValue", "marketValue"));
+        setIfPresent(b, "renovation_value_rm", extractBigDecimal(propertyData, "renovation_value_rm", "renovationValueRm", "renovationValue"));
+        setIfPresent(b, "property_address", extractString(propertyData, "property_address", "propertyAddress", "address", "addressLine1", "address_line1"));
+        setIfPresent(b, "property_address_line2", extractString(propertyData, "property_address_line2", "propertyAddressLine2", "addressLine2", "address_line2"));
+        setIfPresent(b, "property_postcode", extractString(propertyData, "property_postcode", "propertyPostcode", "postcode", "postalCode"));
+        setIfPresent(b, "property_city", extractString(propertyData, "property_city", "propertyCity", "city"));
+        setIfPresent(b, "property_state", extractString(propertyData, "property_state", "propertyState", "state"));
+        setIfPresent(b, "property_country", extractString(propertyData, "property_country", "propertyCountry", "country"));
+        setIfPresent(b, "title_number", extractString(propertyData, "title_number", "titleNumber"));
+        setIfPresent(b, "title_type", extractString(propertyData, "title_type", "titleType"));
+        setIfPresent(b, "lot_number", extractString(propertyData, "lot_number", "lotNumber"));
+        setIfPresent(b, "mukim", extractString(propertyData, "mukim"));
+        setIfPresent(b, "district", extractString(propertyData, "district"));
+        setIfPresent(b, "state_geran", extractString(propertyData, "state_geran", "stateGeran"));
+        setIfPresent(b, "is_owner_occupied", extractBoolean(propertyData, "is_owner_occupied", "isOwnerOccupied"));
+        setIfPresent(b, "is_first_time_buyer", extractBoolean(propertyData, "is_first_time_buyer", "isFirstTimeBuyer", "isFirstTimePurchaser"));
+        setIfPresent(b, "gross_purchase_price_rm", extractBigDecimal(propertyData, "gross_purchase_price_rm", "grossPurchasePriceRm", "grossPurchasePrice"));
+        setIfPresent(b, "discount_rm", extractBigDecimal(propertyData, "discount_rm", "discountRm", "discount"));
+        setIfPresent(b, "rebate_rm", extractBigDecimal(propertyData, "rebate_rm", "rebateRm", "rebate"));
+        setIfPresent(b, "adjustment_rm", extractBigDecimal(propertyData, "adjustment_rm", "adjustmentRm", "adjustment"));
+        setIfPresent(b, "developer_benefits_rm", extractBigDecimal(propertyData, "developer_benefits_rm", "developerBenefitsRm", "developerBenefits"));
+        setIfPresent(b, "net_purchase_price_rm", extractBigDecimal(propertyData, "net_purchase_price_rm", "netPurchasePriceRm", "netPurchasePrice"));
+
+        return b.build();
     }
 
     private void validateApplicationSimilarity(com.google.cloud.spanner.Struct row, Map<String, Object> incoming) {
@@ -735,6 +1011,9 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
     }
 
     private void validateSimilarity(String table, String field, Object existingVal, Object incomingVal, List<String> conflicts) {
+        if (!this.properties.isSimilarityCheckEnabled()) {
+            return;
+        }
         if (this.properties.isFieldIgnored(field)) {
             return;
         }
@@ -834,7 +1113,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                                     "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                                     "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                                     "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                                     "WHERE transaction_id = @transactionId AND applicant_id = @applicantId")
                             .bind("transactionId").to(transactionId)
                             .bind("applicantId").to(applicantId)
@@ -847,7 +1126,7 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
                                     "mail_address, mail_postcode, employment_status, employer_name, nature_of_business, " +
                                     "occupation, job_position, length_of_service_years, monthly_gross_rm, annual_gross_rm, " +
                                     "emergency_name, emergency_relationship, emergency_phone, spouse_full_name, spouse_id_no, " +
-                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm FROM applicant " +
+                                    "spouse_mobile, spouse_employer, spouse_monthly_gross_rm, other_commitments, close_relatives FROM applicant " +
                                     "WHERE transaction_id = @transactionId LIMIT 1")
                             .bind("transactionId").to(transactionId)
                             .build();
@@ -983,6 +1262,9 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
             List<Map<String, Object>> conflicts,
             List<Map<String, Object>> matches
     ) {
+        if (!this.properties.isSimilarityCheckEnabled()) {
+            return;
+        }
         if (this.properties.isFieldIgnored(field, customIgnored)) {
             return;
         }
@@ -1284,4 +1566,236 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         }
         return null;
     }
+
+    @Override
+    public Mono<List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication>> findApplicationsByStatus(String status) {
+        return Mono.fromCallable(() -> {
+            Statement statement = Statement.newBuilder(
+                    "SELECT transaction_id, user_id, application_type, status FROM application WHERE status = @status")
+                    .bind("status").to(status)
+                    .build();
+
+            List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication> list = new ArrayList<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(statement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    list.add(new com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication(
+                            row.getString("transaction_id"),
+                            row.getString("user_id"),
+                            row.isNull("application_type") ? "" : row.getString("application_type"),
+                            row.isNull("status") ? "" : row.getString("status")
+                    ));
+                }
+            }
+            return list;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<List<Map<String, Object>>> findAllApplicationDetails() {
+        return Mono.fromCallable(() -> {
+            Statement appStatement = Statement.newBuilder(
+                    "SELECT transaction_id, user_id, bank_selection, application_type, status, facility_type, facility_purpose, " +
+                    "facilities_required, refinancing_bank, joint_relationship, marketing_consent, docs_enclosed, " +
+                    "ftfc_category, signatures, application_date, ai_analysis, created_at FROM application ORDER BY created_at DESC")
+                    .build();
+
+            List<Map<String, Object>> resultList = new ArrayList<>();
+            List<String> transactionIds = new ArrayList<>();
+
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(appStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    transactionIds.add(txnId);
+
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("transaction_id", txnId);
+                    item.put("user_id", row.getString("user_id"));
+                    if (!row.isNull("created_at")) {
+                        item.put("created_at", row.getTimestamp("created_at").toString());
+                    }
+
+                    Map<String, Object> appData = new LinkedHashMap<>();
+                    appData.put("transaction_id", txnId);
+                    appData.put("user_id", row.getString("user_id"));
+                    appData.put("bank_selection", row.isNull("bank_selection") ? "" : row.getString("bank_selection"));
+                    appData.put("application_type", row.isNull("application_type") ? "" : row.getString("application_type"));
+                    appData.put("status", row.isNull("status") ? "" : row.getString("status"));
+                    appData.put("facility_type", row.isNull("facility_type") ? "" : row.getString("facility_type"));
+                    appData.put("facility_purpose", row.isNull("facility_purpose") ? "" : row.getString("facility_purpose"));
+                    appData.put("facilities_required", row.isNull("facilities_required") ? "" : row.getString("facilities_required"));
+                    appData.put("refinancing_bank", row.isNull("refinancing_bank") ? "" : row.getString("refinancing_bank"));
+                    appData.put("joint_relationship", row.isNull("joint_relationship") ? "" : row.getString("joint_relationship"));
+                    appData.put("marketing_consent", row.isNull("marketing_consent") ? "" : row.getString("marketing_consent"));
+                    appData.put("docs_enclosed", row.isNull("docs_enclosed") ? "" : row.getString("docs_enclosed"));
+                    appData.put("ftfc_category", row.isNull("ftfc_category") ? "" : row.getString("ftfc_category"));
+                    appData.put("signatures", row.isNull("signatures") ? "" : row.getString("signatures"));
+                    appData.put("application_date", row.isNull("application_date") ? "" : row.getDate("application_date").toString());
+                    appData.put("ai_analysis", row.isNull("ai_analysis") ? "" : row.getString("ai_analysis"));
+                    item.put("application", appData);
+
+                    resultList.add(item);
+                }
+            }
+
+            if (resultList.isEmpty()) {
+                return resultList;
+            }
+
+            // Fetch applicants for all transactions
+            Statement applicantStatement = Statement.newBuilder(
+                    "SELECT transaction_id, role, salutation, full_name, id_type, id_no, other_id_type, nationality, race, " +
+                    "country_of_origin, bumiputera_status, gender, marital_status, date_of_birth, age, " +
+                    "dependents_count, schooling_children_count, education_level, resident_type, mobile_phone, " +
+                    "residential_phone, email, residence_type, perm_address, perm_address_line2, perm_postcode, " +
+                    "perm_city, perm_state, perm_country, length_of_stay_years, length_of_stay_months, mail_address, " +
+                    "mail_address_line2, mail_postcode, mail_city, mail_state, mail_country, employment_status, " +
+                    "employer_name, employer_address, employer_address_line2, employer_postcode, employer_city, " +
+                    "employer_state, employer_country, office_phone, direct_line, email_work, nature_of_business, " +
+                    "nature_of_business_specify, occupation, job_position, date_joined, length_of_service_years, " +
+                    "length_of_service_months, prev_employment_status, prev_employer_name, prev_nature_of_business, " +
+                    "prev_occupation, prev_position, prev_phone, prev_service_years, prev_service_months, " +
+                    "monthly_gross_rm, other_monthly_income_rm, annual_gross_rm, other_annual_income_rm, " +
+                    "emergency_name, emergency_relationship, emergency_phone, emergency_phone_home, emergency_email, " +
+                    "spouse_salutation, spouse_full_name, spouse_id_type, spouse_id_no, spouse_other_id_type, " +
+                    "spouse_nationality, spouse_race, spouse_country_of_origin, spouse_bumiputera_status, " +
+                    "spouse_gender, spouse_date_of_birth, spouse_age, spouse_mobile, spouse_residential_phone, " +
+                    "spouse_email, spouse_employer, spouse_nature_of_business, spouse_occupation, spouse_position, " +
+                    "spouse_general_line, spouse_service_years, spouse_monthly_gross_rm, spouse_annual_gross_rm, " +
+                    "other_commitments, close_relatives, close_relations_staff, close_relations_relative " +
+                    "FROM applicant")
+                    .build();
+
+            Map<String, Map<String, Object>> primaryApplicants = new LinkedHashMap<>();
+            Map<String, Map<String, Object>> jointApplicants = new LinkedHashMap<>();
+
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(applicantStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> appMap = mapApplicantStruct(row);
+                    String role = row.isNull("role") ? "Primary" : row.getString("role");
+
+                    if ("Joint".equalsIgnoreCase(role)) {
+                        jointApplicants.put(txnId, appMap);
+                    } else if (!primaryApplicants.containsKey(txnId)) {
+                        primaryApplicants.put(txnId, appMap);
+                    }
+                }
+            }
+
+            // Fetch property for all transactions
+            Statement propertyStatement = Statement.newBuilder(
+                    "SELECT transaction_id, property_type, property_sub_type, property_status, construction_stage, developer_name, " +
+                    "project_name, relationship_to_developer, phase_code, contractor_name, spa_price_rm, open_market_rm, " +
+                    "renovation_value_rm, property_address, property_address_line2, property_postcode, property_city, " +
+                    "property_state, property_country, title_number, title_type, lot_number, mukim, district, " +
+                    "state_geran, is_owner_occupied, is_first_time_buyer, gross_purchase_price_rm, discount_rm, " +
+                    "rebate_rm, adjustment_rm, developer_benefits_rm, net_purchase_price_rm " +
+                    "FROM property")
+                    .build();
+
+            Map<String, Map<String, Object>> properties = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(propertyStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> propMap = new LinkedHashMap<>();
+                    propMap.put("property_type", row.isNull("property_type") ? "" : row.getString("property_type"));
+                    propMap.put("property_sub_type", row.isNull("property_sub_type") ? "" : row.getString("property_sub_type"));
+                    propMap.put("property_status", row.isNull("property_status") ? "" : row.getString("property_status"));
+                    propMap.put("construction_stage", row.isNull("construction_stage") ? "" : row.getString("construction_stage"));
+                    propMap.put("developer_name", row.isNull("developer_name") ? "" : row.getString("developer_name"));
+                    propMap.put("project_name", row.isNull("project_name") ? "" : row.getString("project_name"));
+                    propMap.put("relationship_to_developer", row.isNull("relationship_to_developer") ? "" : row.getString("relationship_to_developer"));
+                    propMap.put("phase_code", row.isNull("phase_code") ? "" : row.getString("phase_code"));
+                    propMap.put("contractor_name", row.isNull("contractor_name") ? "" : row.getString("contractor_name"));
+                    propMap.put("spa_price_rm", row.isNull("spa_price_rm") ? null : row.getBigDecimal("spa_price_rm"));
+                    propMap.put("open_market_rm", row.isNull("open_market_rm") ? null : row.getBigDecimal("open_market_rm"));
+                    propMap.put("renovation_value_rm", row.isNull("renovation_value_rm") ? null : row.getBigDecimal("renovation_value_rm"));
+                    propMap.put("property_address", row.isNull("property_address") ? "" : row.getString("property_address"));
+                    propMap.put("property_address_line2", row.isNull("property_address_line2") ? "" : row.getString("property_address_line2"));
+                    propMap.put("property_postcode", row.isNull("property_postcode") ? "" : row.getString("property_postcode"));
+                    propMap.put("property_city", row.isNull("property_city") ? "" : row.getString("property_city"));
+                    propMap.put("property_state", row.isNull("property_state") ? "" : row.getString("property_state"));
+                    propMap.put("property_country", row.isNull("property_country") ? "" : row.getString("property_country"));
+                    propMap.put("title_number", row.isNull("title_number") ? "" : row.getString("title_number"));
+                    propMap.put("title_type", row.isNull("title_type") ? "" : row.getString("title_type"));
+                    propMap.put("lot_number", row.isNull("lot_number") ? "" : row.getString("lot_number"));
+                    propMap.put("mukim", row.isNull("mukim") ? "" : row.getString("mukim"));
+                    propMap.put("district", row.isNull("district") ? "" : row.getString("district"));
+                    propMap.put("state_geran", row.isNull("state_geran") ? "" : row.getString("state_geran"));
+                    propMap.put("is_owner_occupied", row.isNull("is_owner_occupied") ? null : row.getBoolean("is_owner_occupied"));
+                    propMap.put("is_first_time_buyer", row.isNull("is_first_time_buyer") ? null : row.getBoolean("is_first_time_buyer"));
+                    propMap.put("gross_purchase_price_rm", row.isNull("gross_purchase_price_rm") ? null : row.getBigDecimal("gross_purchase_price_rm"));
+                    propMap.put("discount_rm", row.isNull("discount_rm") ? null : row.getBigDecimal("discount_rm"));
+                    propMap.put("rebate_rm", row.isNull("rebate_rm") ? null : row.getBigDecimal("rebate_rm"));
+                    propMap.put("adjustment_rm", row.isNull("adjustment_rm") ? null : row.getBigDecimal("adjustment_rm"));
+                    propMap.put("developer_benefits_rm", row.isNull("developer_benefits_rm") ? null : row.getBigDecimal("developer_benefits_rm"));
+                    propMap.put("net_purchase_price_rm", row.isNull("net_purchase_price_rm") ? null : row.getBigDecimal("net_purchase_price_rm"));
+                    properties.put(txnId, propMap);
+                }
+            }
+
+            // Fetch documents for all transactions
+            Statement documentStatement = Statement.newBuilder(
+                    "SELECT transaction_id, document_id, document_filename, gcs_url, content_type, " +
+                    "document_status, document_message, document_processing_details, created_at " +
+                    "FROM document ORDER BY created_at ASC")
+                    .build();
+
+            Map<String, List<Map<String, Object>>> documentsByTxn = new LinkedHashMap<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(documentStatement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    String txnId = row.getString("transaction_id");
+                    Map<String, Object> docMap = new LinkedHashMap<>();
+                    docMap.put("document_id", row.isNull("document_id") ? "" : row.getString("document_id"));
+                    docMap.put("document_filename", row.isNull("document_filename") ? "" : row.getString("document_filename"));
+                    docMap.put("gcs_url", row.isNull("gcs_url") ? "" : row.getString("gcs_url"));
+                    docMap.put("content_type", row.isNull("content_type") ? "" : row.getString("content_type"));
+                    docMap.put("document_status", row.isNull("document_status") ? "" : row.getString("document_status"));
+                    docMap.put("document_message", row.isNull("document_message") ? "" : row.getString("document_message"));
+                    docMap.put("document_processing_details", row.isNull("document_processing_details") ? "" : row.getString("document_processing_details"));
+                    if (!row.isNull("created_at")) {
+                        docMap.put("created_at", row.getTimestamp("created_at").toString());
+                    }
+                    documentsByTxn.computeIfAbsent(txnId, k -> new ArrayList<>()).add(docMap);
+                }
+            }
+
+            // Combine into unified item structure (application, applicant, property, documents)
+            for (Map<String, Object> item : resultList) {
+                String txnId = (String) item.get("transaction_id");
+                item.put("applicant", primaryApplicants.getOrDefault(txnId, new LinkedHashMap<>()));
+                if (jointApplicants.containsKey(txnId)) {
+                    item.put("joint_applicant", jointApplicants.get(txnId));
+                }
+                item.put("property", properties.getOrDefault(txnId, new LinkedHashMap<>()));
+                item.put("documents", documentsByTxn.getOrDefault(txnId, new ArrayList<>()));
+            }
+
+            return resultList;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<Void> updateStatus(String transactionId, String status) {
+        return updateStatusAndAiAnalysis(transactionId, status, null);
+    }
+
+    @Override
+    public Mono<Void> updateStatusAndAiAnalysis(String transactionId, String status, String aiAnalysis) {
+        return Mono.fromRunnable(() -> {
+            Mutation.WriteBuilder builder = Mutation.newUpdateBuilder("application")
+                    .set("transaction_id").to(transactionId)
+                    .set("status").to(status);
+            if (aiAnalysis != null) {
+                builder.set("ai_analysis").to(aiAnalysis);
+            }
+            databaseClient.write(List.of(builder.build()));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
 }
+

@@ -19,6 +19,8 @@ public interface LoanApplicationRepository {
 
     Mono<Void> create(String transactionId, String userId, String applicationType, KycProfile kycProfile);
 
+    Mono<Map<String, Object>> getApplicationDetails(String transactionId, String userId);
+
     Mono<Boolean> deleteByTransactionIdAndUserId(String transactionId, String userId);
 
     Mono<Void> updateApplicationData(
@@ -49,4 +51,13 @@ public interface LoanApplicationRepository {
             Map<String, Object> propertyData,
             List<String> ignoredFields
     );
+
+    Mono<List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication>> findApplicationsByStatus(String status);
+
+    Mono<List<Map<String, Object>>> findAllApplicationDetails();
+
+    Mono<Void> updateStatus(String transactionId, String status);
+
+    Mono<Void> updateStatusAndAiAnalysis(String transactionId, String status, String aiAnalysis);
 }
+

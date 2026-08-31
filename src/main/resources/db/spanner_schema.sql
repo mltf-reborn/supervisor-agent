@@ -42,7 +42,23 @@ CREATE INDEX idx_kyc_profile_status ON kyc_profile(status);
 CREATE INDEX idx_kyc_profile_id_card_number ON kyc_profile(id_card_number);
 
 -- ----------------------------------------------------------------------------
--- 2. Application (all loan/facility related data)
+-- 2. Audit Log (KYC and other process logging)
+-- ----------------------------------------------------------------------------
+CREATE TABLE audit_log (
+    processing_date TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+    type STRING(32) NOT NULL,
+    reference_id STRING(64) NOT NULL,
+    subject STRING(1000),
+    description STRING(MAX),
+    status STRING(32) NOT NULL
+) PRIMARY KEY (reference_id);
+
+CREATE INDEX idx_audit_log_type ON audit_log(type);
+CREATE INDEX idx_audit_log_status ON audit_log(status);
+CREATE INDEX idx_audit_log_processing_date ON audit_log(processing_date);
+
+-- ----------------------------------------------------------------------------
+-- 3. Application (all loan/facility related data)
 -- The transaction_id is the stable key for the complete application journey.
 -- ----------------------------------------------------------------------------
 CREATE TABLE application (
@@ -53,10 +69,20 @@ CREATE TABLE application (
     status STRING(32) NOT NULL, -- NEW, SUBMITTED, PENDING_APPROVAL, APPROVED, REJECTED
     facility_type STRING(50),
     facility_purpose STRING(100),
+    facilities_required STRING(MAX),
+    refinancing_bank STRING(100),
+    joint_relationship STRING(50),
     marketing_consent STRING(20),
+    docs_enclosed STRING(MAX),
+    ftfc_category STRING(MAX),
+    signatures STRING(MAX),
     application_date DATE,
+    ai_analysis STRING(MAX),
     created_at TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true)
 ) PRIMARY KEY (transaction_id);
+
+-- Migration DDL for existing database instances:
+-- ALTER TABLE application ADD COLUMN ai_analysis STRING(MAX);
 
 CREATE INDEX idx_application_user_id ON application(user_id);
 
@@ -87,42 +113,103 @@ CREATE TABLE applicant (
     transaction_id STRING(64) NOT NULL,
     applicant_id STRING(64) NOT NULL,
     role STRING(20) NOT NULL,
+    salutation STRING(20),
     full_name STRING(255),
     id_type STRING(50),
     id_no STRING(100),
+    other_id_type STRING(100),
     nationality STRING(50),
     race STRING(50),
+    country_of_origin STRING(100),
     bumiputera_status BOOL,
     gender STRING(10),
     marital_status STRING(20),
     date_of_birth DATE,
+    age INT64,
     dependents_count INT64,
+    schooling_children_count INT64,
     education_level STRING(50),
+    resident_type STRING(50),
     mobile_phone STRING(20),
     residential_phone STRING(20),
     email STRING(100),
+    residence_type STRING(50),
     perm_address STRING(1000),
+    perm_address_line2 STRING(1000),
     perm_postcode STRING(10),
     perm_city STRING(50),
     perm_state STRING(50),
+    perm_country STRING(100),
+    length_of_stay_years NUMERIC,
+    length_of_stay_months NUMERIC,
     mail_address STRING(1000),
+    mail_address_line2 STRING(1000),
     mail_postcode STRING(10),
+    mail_city STRING(50),
+    mail_state STRING(50),
+    mail_country STRING(100),
     employment_status STRING(50),
     employer_name STRING(150),
+    employer_address STRING(1000),
+    employer_address_line2 STRING(1000),
+    employer_postcode STRING(10),
+    employer_city STRING(50),
+    employer_state STRING(50),
+    employer_country STRING(100),
+    office_phone STRING(20),
+    direct_line STRING(20),
+    email_work STRING(100),
     nature_of_business STRING(100),
+    nature_of_business_specify STRING(255),
     occupation STRING(100),
     job_position STRING(100),
+    date_joined DATE,
     length_of_service_years NUMERIC,
+    length_of_service_months NUMERIC,
+    prev_employment_status STRING(50),
+    prev_employer_name STRING(150),
+    prev_nature_of_business STRING(100),
+    prev_occupation STRING(100),
+    prev_position STRING(100),
+    prev_phone STRING(20),
+    prev_service_years NUMERIC,
+    prev_service_months NUMERIC,
     monthly_gross_rm NUMERIC,
+    other_monthly_income_rm NUMERIC,
     annual_gross_rm NUMERIC,
+    other_annual_income_rm NUMERIC,
     emergency_name STRING(255),
     emergency_relationship STRING(50),
     emergency_phone STRING(20),
+    emergency_phone_home STRING(20),
+    emergency_email STRING(100),
+    spouse_salutation STRING(20),
     spouse_full_name STRING(255),
+    spouse_id_type STRING(50),
     spouse_id_no STRING(100),
+    spouse_other_id_type STRING(100),
+    spouse_nationality STRING(50),
+    spouse_race STRING(50),
+    spouse_country_of_origin STRING(100),
+    spouse_bumiputera_status BOOL,
+    spouse_gender STRING(10),
+    spouse_date_of_birth DATE,
+    spouse_age INT64,
     spouse_mobile STRING(20),
+    spouse_residential_phone STRING(20),
+    spouse_email STRING(100),
     spouse_employer STRING(150),
-    spouse_monthly_gross_rm NUMERIC
+    spouse_nature_of_business STRING(100),
+    spouse_occupation STRING(100),
+    spouse_position STRING(100),
+    spouse_general_line STRING(20),
+    spouse_service_years NUMERIC,
+    spouse_monthly_gross_rm NUMERIC,
+    spouse_annual_gross_rm NUMERIC,
+    other_commitments STRING(MAX),
+    close_relatives STRING(MAX),
+    close_relations_staff BOOL,
+    close_relations_relative BOOL
 ) PRIMARY KEY (transaction_id, applicant_id),
   INTERLEAVE IN PARENT application ON DELETE CASCADE;
 
@@ -133,24 +220,37 @@ CREATE TABLE property (
     transaction_id STRING(64) NOT NULL,
     property_id STRING(64) NOT NULL,
     property_type STRING(50),
+    property_sub_type STRING(50),
     property_status STRING(50),
+    construction_stage STRING(100),
     developer_name STRING(150),
     project_name STRING(150),
+    relationship_to_developer STRING(100),
+    phase_code STRING(50),
     contractor_name STRING(150),
     spa_price_rm NUMERIC,
     open_market_rm NUMERIC,
     renovation_value_rm NUMERIC,
     property_address STRING(1000),
+    property_address_line2 STRING(1000),
     property_postcode STRING(10),
     property_city STRING(50),
     property_state STRING(50),
+    property_country STRING(100),
     title_number STRING(100),
     title_type STRING(50),
     lot_number STRING(50),
     mukim STRING(50),
     district STRING(50),
+    state_geran STRING(50),
     is_owner_occupied BOOL,
-    is_first_time_buyer BOOL
+    is_first_time_buyer BOOL,
+    gross_purchase_price_rm NUMERIC,
+    discount_rm NUMERIC,
+    rebate_rm NUMERIC,
+    adjustment_rm NUMERIC,
+    developer_benefits_rm NUMERIC,
+    net_purchase_price_rm NUMERIC
 ) PRIMARY KEY (transaction_id, property_id),
   INTERLEAVE IN PARENT application ON DELETE CASCADE;
 

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/application")
@@ -124,6 +125,15 @@ public class LoanApplicationController {
         }
     }
 
+    /**
+     * Get all loan applications with entities (application, applicant, property, documents)
+     * for Ops Underwriting Dashboard.
+     */
+    @org.springframework.web.bind.annotation.GetMapping("/all")
+    public Mono<List<Map<String, Object>>> getAllApplicationsForOps() {
+        return loanApplicationService.getAllLoanApplications();
+    }
+
     @org.springframework.web.bind.annotation.GetMapping("/edit")
     public Mono<ApplicationInquiryResponse> inquiry(
             @RequestParam("applicationID") String applicationId,
@@ -218,6 +228,94 @@ public class LoanApplicationController {
                     applicationId,
                     auth0JwtService.extractUserId(authHeader),
                     documentId
+            );
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+    }
+
+    @org.springframework.web.bind.annotation.GetMapping("/details")
+    public Mono<Map<String, Object>> getDetails(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            return loanApplicationService.getApplicationDetails(
+                    applicationId,
+                    auth0JwtService.extractUserId(authHeader)
+            );
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+    }
+
+    @PostMapping("/draft")
+    public Mono<Void> saveDraft(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
+            @org.springframework.web.bind.annotation.RequestBody Map<String, Object> payload
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            return loanApplicationService.saveApplicationDraft(
+                    applicationId,
+                    auth0JwtService.extractUserId(authHeader),
+                    payload
+            );
+        } catch (ResponseStatusException ex) {
+            return Mono.error(ex);
+        } catch (Exception ex) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Failed to process authentication token: " + ex.getMessage(),
+                    ex
+            ));
+        }
+    }
+
+    @PostMapping("/details")
+    public Mono<Void> saveDetails(
+            @RequestParam("applicationID") String applicationId,
+            @RequestHeader(name = HttpHeaders.AUTHORIZATION, required = false) String authHeader,
+            @org.springframework.web.bind.annotation.RequestBody Map<String, Object> payload
+    ) {
+        if (authHeader == null || authHeader.isBlank()) {
+            return Mono.error(new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header is required"
+            ));
+        }
+
+        try {
+            return loanApplicationService.saveApplicationDetails(
+                    applicationId,
+                    auth0JwtService.extractUserId(authHeader),
+                    payload
             );
         } catch (ResponseStatusException ex) {
             return Mono.error(ex);

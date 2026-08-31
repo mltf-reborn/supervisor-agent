@@ -61,6 +61,11 @@ public class SupervisorAgentProperties {
     private String caseManagementUrl = "http://localhost:8082";
 
     /**
+     * Base URL for Graph Processing Agent (/api/v1/graph/analysis).
+     */
+    private String graphProcessingUrl = "http://localhost:8083";
+
+    /**
      * Threshold for automated KYC Approval (default: 85.0%).
      */
     private double approvedThreshold = 85.0;
@@ -75,6 +80,11 @@ public class SupervisorAgentProperties {
      * If existing data similarity is >= threshold, data is updated; if < threshold, conflict error is thrown.
      */
     private double similarityThreshold = 0.80;
+
+    /**
+     * Flag whether to enable similarity checks (default: true).
+     */
+    private boolean similarityCheckEnabled = true;
 
     /**
      * Set of field names to ignore during data similarity and conflict detection.
@@ -173,6 +183,14 @@ public class SupervisorAgentProperties {
         this.caseManagementUrl = caseManagementUrl;
     }
 
+    public String getGraphProcessingUrl() {
+        return graphProcessingUrl;
+    }
+
+    public void setGraphProcessingUrl(String graphProcessingUrl) {
+        this.graphProcessingUrl = graphProcessingUrl;
+    }
+
     public double getApprovedThreshold() {
         return approvedThreshold;
     }
@@ -195,6 +213,14 @@ public class SupervisorAgentProperties {
 
     public void setSimilarityThreshold(double similarityThreshold) {
         this.similarityThreshold = similarityThreshold;
+    }
+
+    public boolean isSimilarityCheckEnabled() {
+        return similarityCheckEnabled;
+    }
+
+    public void setSimilarityCheckEnabled(boolean similarityCheckEnabled) {
+        this.similarityCheckEnabled = similarityCheckEnabled;
     }
 
     public Set<String> getSimilarityIgnoredFields() {

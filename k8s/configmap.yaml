@@ -10,6 +10,7 @@ data:
   GCP_SPANNER_DATABASE_ID: "mortgage_db"
   GCP_STORAGE_BUCKET_NAME: "mltf-bucket"
   # Internal Kubernetes DNS names for dependent microservices
-  DOCUMENT_PROCESSING_URL: "http://document-processing-agent:8081"
-  EXTERNAL_KYC_URL: "http://external-kyc-agent:8080"
-  CASE_MANAGEMENT_URL: "http://case-management-service:8082"
+  DOCUMENT_PROCESSING_URL: "http://document-processing-agent.default.svc.cluster.local:8081"
+  EXTERNAL_KYC_URL: "http://external-kyc-agent.default.svc.cluster.local:8080"
+  CASE_MANAGEMENT_URL: "http://case-management-service.default.svc.cluster.local:8082"
+  GRAPH_PROCESSING_URL: "http://graph-processing-agent.default.svc.cluster.local:8083"
