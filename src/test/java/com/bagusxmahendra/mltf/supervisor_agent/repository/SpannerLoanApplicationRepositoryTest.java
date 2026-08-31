@@ -323,4 +323,38 @@ class SpannerLoanApplicationRepositoryTest {
                 })
                 .verifyComplete();
     }
+
+    @Test
+    void findApplicationsByStatus_shouldQueryAndMapSubmittedApplications() {
+        Struct appStruct = mock(Struct.class);
+        when(databaseClient.singleUse()).thenReturn(readContext);
+        when(readContext.executeQuery(any(Statement.class))).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(true, false);
+        when(resultSet.getCurrentRowAsStruct()).thenReturn(appStruct);
+
+        when(appStruct.getString("transaction_id")).thenReturn("TXN-101");
+        when(appStruct.getString("user_id")).thenReturn("usr_101");
+        when(appStruct.isNull("application_type")).thenReturn(false);
+        when(appStruct.getString("application_type")).thenReturn("Single Application");
+        when(appStruct.isNull("status")).thenReturn(false);
+        when(appStruct.getString("status")).thenReturn("SUBMITTED");
+
+        StepVerifier.create(repository.findApplicationsByStatus("SUBMITTED"))
+                .assertNext(list -> {
+                    assertEquals(1, list.size());
+                    assertEquals("TXN-101", list.get(0).transactionId());
+                    assertEquals("usr_101", list.get(0).userId());
+                    assertEquals("SUBMITTED", list.get(0).status());
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void updateStatus_shouldWriteMutation() {
+        StepVerifier.create(repository.updateStatus("TXN-101", "APPROVED"))
+                .verifyComplete();
+
+        verify(databaseClient).write(any());
+    }
 }
+

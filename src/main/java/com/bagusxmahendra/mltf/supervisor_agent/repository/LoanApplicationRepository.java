@@ -51,4 +51,9 @@ public interface LoanApplicationRepository {
             Map<String, Object> propertyData,
             List<String> ignoredFields
     );
+
+    Mono<List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication>> findApplicationsByStatus(String status);
+
+    Mono<Void> updateStatus(String transactionId, String status);
 }
+

@@ -53,37 +53,32 @@ public class DocumentProcessingClient {
                         res.getStatus(), res.getDetectedDocumentType()))
                 .onErrorResume(err -> {
                     log.warn("Failed to reach Document Processing Agent ({}), generating resilient fallback inspection", err.getMessage());
-                    return Mono.just(createFallbackResponse(gcsUrl, mimeType));
+                    return Mono.just(createFallbackResponse(gcsUrl, mimeType, err));
                 });
     }
 
-    private DocProcessingResponseDto createFallbackResponse(String gcsUrl, String mimeType) {
+    private DocProcessingResponseDto createFallbackResponse(String gcsUrl, String mimeType, Throwable err) {
         DocProcessingResponseDto res = new DocProcessingResponseDto();
-        res.setStatus("SUCCESS");
-        res.setMessage("Document analyzed via resilient fallback inspection");
+        res.setStatus("IN_REVIEW");
+        String errorMsg = err != null && err.getMessage() != null ? err.getMessage() : "Service unavailable";
+        res.setMessage("Failed to reach Document Processing Agent (/api/v1/doc/processing): " + errorMsg);
         res.setGcsUrl(gcsUrl);
-        res.setDetectedDocumentType("NATIONAL_ID");
+        res.setDetectedDocumentType("IDENTITY_DOCUMENT");
 
         Map<String, Object> pixelCheck = new LinkedHashMap<>();
         pixelCheck.put("isTampered", false);
-        pixelCheck.put("tamperingRiskLevel", "NONE");
+        pixelCheck.put("tamperingRiskLevel", "UNKNOWN");
         pixelCheck.put("tamperingConfidence", 0.0);
-        pixelCheck.put("findings", "Document image inspected. No pixel manipulations, font splicing, or tamper artifacts detected.");
+        pixelCheck.put("findings", "Document processing API unreachable. Inspection could not be completed automatically.");
         pixelCheck.put("anomalies", Collections.emptyList());
         res.setPixelLevelCheck(pixelCheck);
 
         Map<String, Object> scores = new LinkedHashMap<>();
-        scores.put("documentScore", 96.5);
-        scores.put("originalityScore", 100.0);
-        scores.put("confidenceScore", 95.0);
-        scores.put("scoringBreakdown", "Originality: 100.0% (clean edges), Confidence: 95.0% (legible text)");
+        scores.put("documentScore", 50.0);
+        scores.put("originalityScore", 50.0);
+        scores.put("confidenceScore", 50.0);
+        scores.put("scoringBreakdown", "Automated scoring unavailable due to service unreachability");
         res.setScores(scores);
-
-        // Do not populate extractedFields with null values in the fallback.
-        // The Document Processing Agent was unreachable, so no OCR data is available.
-        // Leaving extractedFields null (omitted via @JsonInclude NON_NULL) correctly signals
-        // "no data extracted" to downstream consumers, rather than a map of explicit nulls
-        // that would mislead the supervisor's extractString() helper into thinking fields exist.
 
         return res;
     }

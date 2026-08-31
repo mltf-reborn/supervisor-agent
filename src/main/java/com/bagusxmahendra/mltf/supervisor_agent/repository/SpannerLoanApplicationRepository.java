@@ -1548,4 +1548,40 @@ public class SpannerLoanApplicationRepository implements LoanApplicationReposito
         }
         return null;
     }
+
+    @Override
+    public Mono<List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication>> findApplicationsByStatus(String status) {
+        return Mono.fromCallable(() -> {
+            Statement statement = Statement.newBuilder(
+                    "SELECT transaction_id, user_id, application_type, status FROM application WHERE status = @status")
+                    .bind("status").to(status)
+                    .build();
+
+            List<com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication> list = new ArrayList<>();
+            try (ResultSet rs = databaseClient.singleUse().executeQuery(statement)) {
+                while (rs.next()) {
+                    com.google.cloud.spanner.Struct row = rs.getCurrentRowAsStruct();
+                    list.add(new com.bagusxmahendra.mltf.supervisor_agent.model.SubmittedApplication(
+                            row.getString("transaction_id"),
+                            row.getString("user_id"),
+                            row.isNull("application_type") ? "" : row.getString("application_type"),
+                            row.isNull("status") ? "" : row.getString("status")
+                    ));
+                }
+            }
+            return list;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    @Override
+    public Mono<Void> updateStatus(String transactionId, String status) {
+        return Mono.fromRunnable(() -> {
+            Mutation mutation = Mutation.newUpdateBuilder("application")
+                    .set("transaction_id").to(transactionId)
+                    .set("status").to(status)
+                    .build();
+            databaseClient.write(List.of(mutation));
+        }).subscribeOn(Schedulers.boundedElastic()).then();
+    }
 }
+
